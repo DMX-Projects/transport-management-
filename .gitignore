@@ -1,0 +1,47 @@
+# Transport ERP - Root .gitignore
+
+# Python
+*.py[cod]
+*.pyc
+__pycache__/
+*.so
+.Python
+venv/
+env/
+*.log
+
+# Node
+node_modules/
+dist/
+build/
+*.local
+
+# Database
+*.sqlite3
+*.db
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# OS
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Coverage
+coverage/
+.coverage
+htmlcov/
+
+# Build artifacts
+staticfiles/
+media/
