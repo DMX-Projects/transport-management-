@@ -59,6 +59,24 @@ export const lrApi = api.injectEndpoints({
         getLRAuditHistory: builder.query({
             query: (id) => `/lr/lorry-receipts/${id}/audit_history/`,
         }),
+
+        // Search LRs (for searchable select)
+        searchLRs: builder.query({
+            query: (searchTerm) => ({
+                url: '/lr/lorry-receipts/',
+                params: { search: searchTerm },
+            }),
+            providesTags: ['LR'],
+        }),
+
+        // Get LRs without HPA (for HPA creation)
+        getLRsWithoutHPA: builder.query({
+            query: (params = {}) => ({
+                url: '/lr/lorry-receipts/without_hpa/',
+                params,
+            }),
+            providesTags: ['LR', 'HPA'],
+        }),
     }),
 });
 
@@ -70,4 +88,6 @@ export const {
     useDeleteLRMutation,
     useGetLRsByDateRangeQuery,
     useGetLRAuditHistoryQuery,
+    useSearchLRsQuery,
+    useGetLRsWithoutHPAQuery,
 } = lrApi;

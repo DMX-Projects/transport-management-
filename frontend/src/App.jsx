@@ -8,9 +8,7 @@ import Dashboard from './pages/Dashboard';
 import LRManagement from './pages/LRManagement';
 import HPAManagement from './pages/HPAManagement';
 import Payments from './pages/Payments';
-import POD from './pages/POD';
 import Billing from './pages/Billing';
-import Receipts from './pages/Receipts';
 import Reports from './pages/Reports';
 import Masters from './pages/Masters';
 import DashboardLayout from './components/layout/DashboardLayout';
@@ -25,6 +23,18 @@ function ProtectedRoute({ children }) {
 function PublicRoute({ children }) {
   const isAuthenticated = useSelector(selectIsAuthenticated);
   return !isAuthenticated ? children : <Navigate to="/dashboard" replace />;
+}
+
+// Root redirect component - redirects based on auth state
+function RootRedirect() {
+  const isAuthenticated = useSelector(selectIsAuthenticated);
+  return <Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />;
+}
+
+// Catch-all redirect component - redirects based on auth state
+function CatchAllRedirect() {
+  const isAuthenticated = useSelector(selectIsAuthenticated);
+  return <Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />;
 }
 
 function AppRoutes() {
@@ -74,7 +84,7 @@ function AppRoutes() {
         <Route path="/pod" element={
           <ProtectedRoute>
             <DashboardLayout>
-              <POD />
+                {/* POD removed */}
             </DashboardLayout>
           </ProtectedRoute>
         } />
@@ -90,7 +100,7 @@ function AppRoutes() {
         <Route path="/receipts" element={
           <ProtectedRoute>
             <DashboardLayout>
-              <Receipts />
+                {/* Receipts removed */}
             </DashboardLayout>
           </ProtectedRoute>
         } />
@@ -111,11 +121,11 @@ function AppRoutes() {
           </ProtectedRoute>
         } />
 
-        {/* Redirect root to dashboard */}
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        {/* Redirect root based on auth state */}
+        <Route path="/" element={<RootRedirect />} />
 
-        {/* Catch all - redirect to dashboard */}
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        {/* Catch all - redirect based on auth state */}
+        <Route path="*" element={<CatchAllRedirect />} />
       </Routes>
     </Router>
   );

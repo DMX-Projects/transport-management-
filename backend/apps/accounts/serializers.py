@@ -6,11 +6,13 @@ User = get_user_model()
 
 class UserSerializer(serializers.ModelSerializer):
     """Serializer for User model"""
+    branch_name = serializers.CharField(source='branch.name', read_only=True)
+    branch_code = serializers.CharField(source='branch.code', read_only=True)
     
     class Meta:
         model = User
         fields = ['id', 'username', 'email', 'first_name', 'last_name', 
-                  'role', 'branch', 'phone', 'is_active', 'date_joined']
+                  'role', 'branch', 'branch_name', 'branch_code', 'phone', 'is_active', 'date_joined']
         read_only_fields = ['id', 'date_joined']
 
 

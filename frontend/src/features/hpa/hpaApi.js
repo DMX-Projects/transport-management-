@@ -1,33 +1,13 @@
-import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import { api } from '../../app/api';
 
-const baseQuery = fetchBaseQuery({
-    baseUrl: 'http://localhost:8000/api/v1',
-    prepareHeaders: (headers, { getState }) => {
-        const token = getState().auth.token;
-        if (token) {
-            headers.set('Authorization', `Bearer ${token}`);
-        }
-        return headers;
-    },
-});
-
-export const hpaApi = createApi({
-    reducerPath: 'hpaApi',
-    baseQuery,
-    tagTypes: ['HPA'],
+export const hpaApi = api.injectEndpoints({
     endpoints: (builder) => ({
         getHPAs: builder.query({
             query: (params = {}) => ({
                 url: '/hpa/hire-payment-advices/',
                 params,
             }),
-            providesTags: (result) =>
-                result?.results
-                    ? [
-                        ...result.results.map(({ id }) => ({ type: 'HPA', id })),
-                        { type: 'HPA', id: 'LIST' },
-                    ]
-                    : [{ type: 'HPA', id: 'LIST' }],
+            providesTags: ['HPA'],
         }),
 
         getHPAById: builder.query({
@@ -51,7 +31,7 @@ export const hpaApi = createApi({
                 method: 'POST',
                 body: data,
             }),
-            invalidatesTags: [{ type: 'HPA', id: 'LIST' }, { type: 'HPA', id: 'PENDING' }],
+            invalidatesTags: ['HPA', 'LR'],
         }),
 
         updateHPA: builder.mutation({
@@ -60,11 +40,7 @@ export const hpaApi = createApi({
                 method: 'PATCH',
                 body: data,
             }),
-            invalidatesTags: (result, error, { id }) => [
-                { type: 'HPA', id },
-                { type: 'HPA', id: 'LIST' },
-                { type: 'HPA', id: 'PENDING' },
-            ],
+            invalidatesTags: (result, error, { id }) => [{ type: 'HPA', id }, 'HPA'],
         }),
 
         deleteHPA: builder.mutation({
@@ -72,7 +48,7 @@ export const hpaApi = createApi({
                 url: `/hpa/hire-payment-advices/${id}/`,
                 method: 'DELETE',
             }),
-            invalidatesTags: [{ type: 'HPA', id: 'LIST' }],
+            invalidatesTags: ['HPA'],
         }),
 
         markAsPaid: builder.mutation({
@@ -81,11 +57,49 @@ export const hpaApi = createApi({
                 method: 'POST',
                 body: data,
             }),
-            invalidatesTags: (result, error, { id }) => [
-                { type: 'HPA', id },
-                { type: 'HPA', id: 'LIST' },
-                { type: 'HPA', id: 'PENDING' },
+            invalidatesTags: (result, error, { id }) => [{ type: 'HPA', id }, 'HPA'],
+        }),
+
+        // Get HPAs by date range
+        getHPAsByDateRange: builder.query({
+            query: ({ start_date, end_date }) => ({
+                url: '/hpa/hire-payment-advices/by_date_range/',
+                params: { start_date, end_date },
+            }),
+            providesTags: ['HPA'],
+        }),
+
+        // Get HPA transactions
+        getHPATransactions: builder.query({
+            query: (hpaId) => ({
+                url: `/hpa/hire-payment-advices/${hpaId}/transactions/`,
+            }),
+            providesTags: (result, error, hpaId) => [{ type: 'HPATransaction', id: hpaId }],
+            // Force refetch every time the query is called
+            keepUnusedDataFor: 0,
+        }),
+
+        // Add transaction to HPA
+        addHPATransaction: builder.mutation({
+            query: ({ hpaId, ...data }) => ({
+                url: `/hpa/hire-payment-advices/${hpaId}/transactions/`,
+                method: 'POST',
+                body: data,
+            }),
+            invalidatesTags: (result, error, { hpaId }) => [
+                { type: 'HPATransaction', id: hpaId },
+                { type: 'HPA', id: hpaId },
+                'HPA'
             ],
+        }),
+
+        // Get HPAs without bills
+        getHPAsWithoutBills: builder.query({
+            query: (params = {}) => ({
+                url: '/hpa/hire-payment-advices/without_bills/',
+                params,
+            }),
+            providesTags: ['HPA'],
         }),
     }),
 });
@@ -95,8 +109,12 @@ export const {
     useGetHPAByIdQuery,
     useGetPendingPaymentsQuery,
     useGetHPAsByTruckQuery,
+    useGetHPAsByDateRangeQuery,
     useCreateHPAMutation,
     useUpdateHPAMutation,
     useDeleteHPAMutation,
     useMarkAsPaidMutation,
+    useGetHPATransactionsQuery,
+    useAddHPATransactionMutation,
+    useGetHPAsWithoutBillsQuery,
 } = hpaApi;

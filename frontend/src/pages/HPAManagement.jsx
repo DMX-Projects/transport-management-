@@ -1,15 +1,29 @@
 import { useState, useEffect } from 'react';
-import { useGetHPAsQuery, useCreateHPAMutation, useDeleteHPAMutation, useMarkAsPaidMutation } from '../features/hpa/hpaApi';
-import { useGetLRsQuery } from '../features/lr/lrApi';
-import { XMarkIcon, PlusIcon, MagnifyingGlassIcon, BanknotesIcon } from '@heroicons/react/24/outline';
+import { useGetHPAsQuery, useCreateHPAMutation, useUpdateHPAMutation, useMarkAsPaidMutation, useGetHPATransactionsQuery } from '../features/hpa/hpaApi';
+import { useGetLRsWithoutHPAQuery } from '../features/lr/lrApi';
+import { useGetBranchesQuery, useGetTrucksQuery } from '../features/masters/mastersApi';
+import { useAuth } from '../hooks/useAuth';
+import { XMarkIcon, PlusIcon, MagnifyingGlassIcon, BanknotesIcon, PencilIcon, ArrowDownTrayIcon, EyeIcon, ShareIcon } from '@heroicons/react/24/outline';
+import SearchableSelect from '../components/SearchableSelect';
+import { useSearchableSelect } from '../hooks/useSearchableSelect';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
 export default function HPAManagement() {
     const [showCreateModal, setShowCreateModal] = useState(false);
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [showViewModal, setShowViewModal] = useState(false);
+    const [selectedHPA, setSelectedHPA] = useState(null);
     const [filters, setFilters] = useState({});
+    const [searchTerm, setSearchTerm] = useState('');
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(25);
 
-    const { data: hpasData, isLoading: isLoadingHPAs } = useGetHPAsQuery(filters);
+    const debouncedSearch = useDebouncedValue(searchTerm, 300);
+
+    const { data: hpasData, isLoading: isLoadingHPAs } = useGetHPAsQuery({ ...filters, search: debouncedSearch, page, page_size: pageSize });
     const [createHPA, { isLoading: isCreating }] = useCreateHPAMutation();
-    const [deleteHPA] = useDeleteHPAMutation();
+    const [updateHPA, { isLoading: isUpdating }] = useUpdateHPAMutation();
+    const { canEdit } = useAuth();
 
     // Extract arrays from API response
     const hpas = Array.isArray(hpasData) ? hpasData : (hpasData?.results || []);
@@ -18,11 +32,10 @@ export default function HPAManagement() {
         try {
             await createHPA(formData).unwrap();
             setShowCreateModal(false);
-            alert('✅ HPA created successfully!');
+            alert('✅ HPA created successfully! HPA number matches LR number.');
         } catch (error) {
             console.error('Error creating HPA:', error);
             let errorMessage = 'Error creating HPA:\n\n';
-
             if (error.data && typeof error.data === 'object' && !Array.isArray(error.data)) {
                 Object.entries(error.data).forEach(([field, messages]) => {
                     const msgArray = Array.isArray(messages) ? messages : [messages];
@@ -33,21 +46,33 @@ export default function HPAManagement() {
             } else {
                 errorMessage += error.message || 'Unknown error occurred';
             }
-
             alert(errorMessage);
         }
     };
 
-    const handleDeleteHPA = async (id) => {
-        if (window.confirm('Are you sure you want to delete this HPA?')) {
-            try {
-                await deleteHPA(id).unwrap();
-                alert('HPA deleted successfully!');
-            } catch (error) {
-                alert('Error deleting HPA');
+    const handleUpdateHPA = async (formData) => {
+        try {
+            await updateHPA({ id: selectedHPA.id, ...formData }).unwrap();
+            setShowEditModal(false);
+            setSelectedHPA(null);
+            alert('✅ HPA updated successfully!');
+        } catch (error) {
+            console.error('Error updating HPA:', error);
+            let errorMessage = 'Error updating HPA:\n\n';
+            if (error.data && typeof error.data === 'object' && !Array.isArray(error.data)) {
+                Object.entries(error.data).forEach(([field, messages]) => {
+                    const msgArray = Array.isArray(messages) ? messages : [messages];
+                    errorMessage += `• ${field}: ${msgArray.join(', ')}\n`;
+                });
+            } else if (typeof error.data === 'string') {
+                errorMessage += error.data;
+            } else {
+                errorMessage += error.message || 'Unknown error occurred';
             }
+            alert(errorMessage);
         }
     };
+
 
     const getStatusBadgeClass = (status) => {
         switch (status) {
@@ -55,6 +80,7 @@ export default function HPAManagement() {
                 return 'badge-success';
             case 'PARTIAL':
                 return 'badge-warning';
+            case 'PENDING_BILL':
             case 'PENDING':
                 return 'badge-error';
             default:
@@ -70,13 +96,9 @@ export default function HPAManagement() {
                     <h1 style={{ fontSize: '28px', fontWeight: 700, marginBottom: '8px' }}>
                         <span className="gradient-text">HPA Management</span>
                     </h1>
-                    <p style={{ color: '#6b7280' }}>Track and manage Hire Payment Advices</p>
+                    <p style={{ color: '#6b7280' }}>Create and manage Hire Payment Advices (HPA number matches LR number)</p>
                 </div>
-
-                <button
-                    className="btn btn-primary"
-                    onClick={() => setShowCreateModal(true)}
-                >
+                <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
                     <PlusIcon style={{ width: '20px', height: '20px' }} />
                     Create New HPA
                 </button>
@@ -94,13 +116,13 @@ export default function HPAManagement() {
                             <input
                                 type="text"
                                 className="input"
-                                placeholder="HPA Number, LR Number..."
+                                placeholder="HPA Number, Invoice Number, LR Number..."
                                 style={{ paddingLeft: '40px' }}
-                                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                                value={searchTerm}
+                                onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
                             />
                         </div>
                     </div>
-
                     <div>
                         <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
                             Payment Status
@@ -110,7 +132,8 @@ export default function HPAManagement() {
                             onChange={(e) => setFilters({ ...filters, payment_status: e.target.value })}
                         >
                             <option value="">All Status</option>
-                            <option value="PENDING">Pending</option>
+                            <option value="PENDING_BILL">Open (Pending Bill)</option>
+                            <option value="PENDING">Pending Payment</option>
                             <option value="PARTIAL">Partially Paid</option>
                             <option value="PAID">Paid</option>
                         </select>
@@ -120,28 +143,36 @@ export default function HPAManagement() {
 
             {/* HPA List */}
             <div className="card">
-                <h2 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px' }}>
-                    Hire Payment Advices
-                </h2>
-
+                <h2 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px' }}>Hire Payment Advices</h2>
                 {isLoadingHPAs ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>
-                        Loading...
-                    </div>
+                    <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>Loading...</div>
                 ) : hpas.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>
-                        No HPAs found. Create your first HPA!
-                    </div>
+                    <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>No HPAs found. Create your first HPA!</div>
                 ) : (
                     <div style={{ overflowX: 'auto' }}>
+                        {/* Pagination controls */}
+                        {hpasData?.count !== undefined && (
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
+                                <button className="btn" onClick={() => setPage(Math.max(1, page - 1))} disabled={!hpasData?.previous}>Prev</button>
+                                <span style={{ fontSize: '12px', color: '#6b7280' }}>Page {page}</span>
+                                <button className="btn" onClick={() => setPage(page + 1)} disabled={!hpasData?.next}>Next</button>
+                                <select className="input" value={pageSize} onChange={(e) => { setPageSize(parseInt(e.target.value) || 25); setPage(1); }}>
+                                    <option value={10}>10</option>
+                                    <option value={25}>25</option>
+                                    <option value={50}>50</option>
+                                </select>
+                                <span style={{ marginLeft: 'auto', fontSize: '12px', color: '#6b7280' }}>Total: {hpasData?.count || hpas.length}</span>
+                            </div>
+                        )}
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
                                 <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
                                     <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>HPA Number</th>
+                                    <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>Invoice No</th>
                                     <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>Date</th>
                                     <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>LR Number</th>
                                     <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>Truck</th>
-                                    <th style={{ padding: '12px', textAlign: 'right', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>Freight</th>
+                                    <th style={{ padding: '12px', textAlign: 'right', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>Lorry Hire</th>
                                     <th style={{ padding: '12px', textAlign: 'right', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>Deductions</th>
                                     <th style={{ padding: '12px', textAlign: 'right', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>Balance</th>
                                     <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>Status</th>
@@ -156,32 +187,119 @@ export default function HPAManagement() {
                                         onMouseEnter={(e) => e.currentTarget.style.background = '#f9fafb'}
                                         onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                                     >
-                                        <td style={{ padding: '16px 12px', fontSize: '14px', fontWeight: 600, color: '#111827' }}>{hpa.hpa_number}</td>
-                                        <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563' }}>{new Date(hpa.hpa_date).toLocaleDateString()}</td>
-                                        <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563' }}>{hpa.lr_number}</td>
-                                        <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563' }}>{hpa.truck_number}</td>
+                                        <td style={{ padding: '16px 12px', fontSize: '14px', fontWeight: 600, color: '#111827' }}>{hpa.hpa_number || '-'}</td>
+                                        <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563' }}>{hpa.invoice_number || '-'}</td>
+                                        <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563' }}>{hpa.hpa_date ? new Date(hpa.hpa_date).toLocaleDateString() : '-'}</td>
+                                        <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563', fontWeight: 600 }}>{hpa.lr_number || '-'}</td>
+                                        <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563' }}>{hpa.truck_number || '-'}</td>
                                         <td style={{ padding: '16px 12px', fontSize: '14px', fontWeight: 600, color: '#111827', textAlign: 'right' }}>
-                                            ₹{parseFloat(hpa.freight_amount).toLocaleString()}
+                                            ₹{parseFloat(hpa.lorry_hire_rs || 0).toLocaleString()}
                                         </td>
                                         <td style={{ padding: '16px 12px', fontSize: '14px', color: '#ef4444', textAlign: 'right' }}>
-                                            -₹{parseFloat(hpa.total_deductions).toLocaleString()}
+                                            -₹{parseFloat(hpa.total_deductions || 0).toLocaleString()}
                                         </td>
                                         <td style={{ padding: '16px 12px', fontSize: '14px', fontWeight: 700, color: '#10b981', textAlign: 'right' }}>
-                                            ₹{parseFloat(hpa.balance_amount).toLocaleString()}
+                                            ₹{parseFloat(hpa.balance_rs || hpa.balance_amount || 0).toLocaleString()}
                                         </td>
                                         <td style={{ padding: '16px 12px' }}>
                                             <span className={`badge ${getStatusBadgeClass(hpa.payment_status)}`}>
-                                                {hpa.payment_status}
+                                                {hpa.payment_status || 'PENDING'}
                                             </span>
+                                            {canEdit && (
+                                                <select
+                                                    style={{ marginLeft: '8px', fontSize: '12px' }}
+                                                    value={hpa.payment_status}
+                                                    onChange={e => updateHPA({ id: hpa.id, payment_status: e.target.value })}
+                                                >
+                                                    <option value="PENDING">Pending</option>
+                                                    <option value="PARTIAL">Partial</option>
+                                                    <option value="PAID">Paid</option>
+                                                    <option value="CANCELLED">Cancelled</option>
+                                                </select>
+                                            )}
                                         </td>
                                         <td style={{ padding: '16px 12px', textAlign: 'center' }}>
-                                            <button
-                                                onClick={() => handleDeleteHPA(hpa.id)}
-                                                style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#ef4444' }}
-                                                title="Delete HPA"
-                                            >
-                                                <XMarkIcon style={{ width: '18px', height: '18px' }} />
-                                            </button>
+                                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center' }}>
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedHPA(hpa);
+                                                        setShowViewModal(true);
+                                                    }}
+                                                    style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#10b981' }}
+                                                    title="View HPA & Transactions"
+                                                >
+                                                    <EyeIcon style={{ width: '18px', height: '18px' }} />
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        const token = localStorage.getItem('token');
+                                                        const url = `http://localhost:8000/api/v1/hpa/hire-payment-advices/${hpa.id}/download_pdf/`;
+                                                        fetch(url, {
+                                                            headers: {
+                                                                'Authorization': `Bearer ${token}`
+                                                            }
+                                                        })
+                                                        .then(response => response.blob())
+                                                        .then(blob => {
+                                                            const url = window.URL.createObjectURL(blob);
+                                                            const a = document.createElement('a');
+                                                            a.href = url;
+                                                            a.download = `HPA_${hpa.hpa_number}.pdf`;
+                                                            document.body.appendChild(a);
+                                                            a.click();
+                                                            window.URL.revokeObjectURL(url);
+                                                            document.body.removeChild(a);
+                                                        })
+                                                        .catch(error => {
+                                                            console.error('Error downloading PDF:', error);
+                                                            alert('Error downloading PDF. Please try again.');
+                                                        });
+                                                    }}
+                                                    style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#10b981' }}
+                                                    title="Download HPA PDF"
+                                                >
+                                                    <ArrowDownTrayIcon style={{ width: '18px', height: '18px' }} />
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        const token = localStorage.getItem('token');
+                                                        const url = `http://localhost:8000/api/v1/hpa/hire-payment-advices/${hpa.id}/download_pdf/`;
+                                                        fetch(url, {
+                                                            headers: {
+                                                                'Authorization': `Bearer ${token}`
+                                                            }
+                                                        })
+                                                        .then(response => response.blob())
+                                                        .then(blob => {
+                                                            const blobUrl = window.URL.createObjectURL(blob);
+                                                            const message = `HPA ${hpa.hpa_number} - Click to view: ${blobUrl}`;
+                                                            const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+                                                            window.open(whatsappUrl, '_blank');
+                                                            setTimeout(() => window.URL.revokeObjectURL(blobUrl), 5000);
+                                                        })
+                                                        .catch(error => {
+                                                            console.error('Error sharing PDF:', error);
+                                                            alert('Error sharing PDF. Please try again.');
+                                                        });
+                                                    }}
+                                                    style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#25D366' }}
+                                                    title="Share on WhatsApp"
+                                                >
+                                                    <ShareIcon style={{ width: '18px', height: '18px' }} />
+                                                </button>
+                                                {canEdit && (
+                                                    <button
+                                                        onClick={() => {
+                                                            setSelectedHPA(hpa);
+                                                            setShowEditModal(true);
+                                                        }}
+                                                        style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#6366f1' }}
+                                                        title="Edit HPA"
+                                                    >
+                                                        <PencilIcon style={{ width: '18px', height: '18px' }} />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -199,74 +317,223 @@ export default function HPAManagement() {
                     isLoading={isCreating}
                 />
             )}
+
+            {/* View HPA Modal */}
+            {showViewModal && selectedHPA && (
+                <ViewHPAModal
+                    hpa={selectedHPA}
+                    onClose={() => {
+                        setShowViewModal(false);
+                        setSelectedHPA(null);
+                    }}
+                />
+            )}
+
+            {/* Edit HPA Modal */}
+            {showEditModal && selectedHPA && (
+                <EditHPAModal
+                    hpa={selectedHPA}
+                    onClose={() => {
+                        setShowEditModal(false);
+                        setSelectedHPA(null);
+                    }}
+                    onSubmit={handleUpdateHPA}
+                    isLoading={isUpdating}
+                />
+            )}
         </div>
     );
 }
 
 function CreateHPAModal({ onClose, onSubmit, isLoading }) {
-    const { data: lrsData } = useGetLRsQuery();
-    const lrs = Array.isArray(lrsData) ? lrsData : (lrsData?.results || []);
+    const { user, isSuperAdmin } = useAuth();
 
+    const { data: branchesData, isLoading: isLoadingBranches } = useGetBranchesQuery();
+    const branches = Array.isArray(branchesData) ? branchesData : (branchesData?.results || []);
+
+    const { data: trucksData, isLoading: isLoadingTrucks } = useGetTrucksQuery();
+    const trucks = Array.isArray(trucksData) ? trucksData : (trucksData?.results || []);
+    
+    // Search hooks for searchable selects
+    const truckSearch = useSearchableSelect('/masters/trucks/');
+
+    const [selectedBranchId, setSelectedBranchId] = useState(isSuperAdmin ? '' : String(user?.branch?.id || ''));
+    
+    // Initialize formData state BEFORE using it in other hooks
     const [formData, setFormData] = useState({
+        branch: isSuperAdmin ? '' : String(user?.branch?.id || ''), // SuperAdmin must provide, branch users get auto-assignment
         lr: '',
-        advance_paid: '0',
+        truck: '',  // Added truck field - REQUIRED and EDITABLE
+        invoice_number: '',
+        hpa_date: new Date().toISOString().split('T')[0],
+        from_location: '',
+        to_location: '',
+        owner_name: '',
+        owner_mob: '',
+        driver_name: '',
+        driver_mob: '',
+        lr_reference: '',
+        tons: '',
+        rate_per_tonne: '',
+        lorry_hire_rs: '',
+        advance_paid_rs: '0',
         diesel_amount: '0',
-        loading_charges: '0',
-        unloading_charges: '0',
+        pump_name: '',
+        bank_amount: '0',
         other_deductions: '0',
         other_deductions_description: '',
-        paid_amount: '0',
-        payment_date: '',
-        payment_mode: '',
+        note: 'I have received above quantity in good condition & I am responsible for good delivery to the party\nminimum 3 Delivery',
         remarks: '',
     });
 
     const [selectedLR, setSelectedLR] = useState(null);
     const [calculatedValues, setCalculatedValues] = useState({
         totalDeductions: 0,
-        balance: 0,
+        balanceRs: 0,
+        lorryHire: 0,
     });
 
-    // Get selected LR details
+    // Build query params for LR fetch
+    const lrQueryParams = selectedBranchId 
+        ? { branch: selectedBranchId } 
+        : (!isSuperAdmin && user?.branch?.id ? { branch: String(user?.branch?.id) } : {});
+    
+    // Fetch LRs without HPA filtered by selected branch
+    const { data: lrsData, isLoading: isLoadingLRs, refetch: refetchLRs } = useGetLRsWithoutHPAQuery(
+        lrQueryParams,
+        { skip: isSuperAdmin && !selectedBranchId } // Only skip for SuperAdmin when no branch selected
+    );
+    const lrs = Array.isArray(lrsData) ? lrsData : (lrsData?.results || []);
+    
+    // Debug logging
+    useEffect(() => {
+        console.log('========== HPA Modal Debug ==========');
+        console.log('HPA Modal - isSuperAdmin:', isSuperAdmin);
+        console.log('HPA Modal - selectedBranchId:', selectedBranchId, 'Type:', typeof selectedBranchId);
+        console.log('HPA Modal - formData.branch:', formData.branch, 'Type:', typeof formData.branch);
+        console.log('HPA Modal - lrQueryParams:', JSON.stringify(lrQueryParams));
+        console.log('HPA Modal - Skip query?:', isSuperAdmin && !selectedBranchId);
+        console.log('HPA Modal - LRs data:', lrsData);
+        console.log('HPA Modal - LRs count:', lrs.length);
+        console.log('HPA Modal - isLoadingLRs:', isLoadingLRs);
+        console.log('=====================================');
+    }, [isSuperAdmin, selectedBranchId, formData.branch, lrQueryParams, lrs.length, lrsData, isLoadingLRs]);
+
+    // Note: Branch is auto-assigned by backend, no need to manage selectedBranchId
+
+    // Get selected LR details and auto-populate
     useEffect(() => {
         if (formData.lr) {
             const lr = lrs.find(l => l.id === parseInt(formData.lr));
             setSelectedLR(lr);
+            if (lr) {
+                // Auto-populate from LR with all available data
+                setFormData(prev => ({
+                    ...prev,
+                    // Auto-populate branch from LR
+                    branch: lr.branch || prev.branch,
+                    truck: lr.truck || prev.truck,  // Auto-populate truck ID from LR
+                    from_location: lr.from_location || prev.from_location,
+                    to_location: lr.to_location || prev.to_location,
+                    driver_name: lr.driver_name || prev.driver_name,
+                    driver_mob: lr.driver_phone || prev.driver_mob,  // LR has driver_phone, HPA expects driver_mob
+                    lr_reference: lr.lr_number || prev.lr_reference,
+                    tons: lr.quantity_mt || prev.tons,  // LR has quantity_mt, HPA expects tons
+                    invoice_number: lr.sap_number || prev.invoice_number,  // Auto-populate SAP number as invoice
+                    // Note: LR doesn't have rate_per_tonne - must be entered when creating HPA
+                    rate_per_tonne: prev.rate_per_tonne,
+                }));
+                // Update selectedBranchId so subsequent LRs in that branch can be filtered
+                if (lr.branch) {
+                    setSelectedBranchId(lr.branch);
+                }
+            }
         } else {
             setSelectedLR(null);
         }
     }, [formData.lr, lrs]);
 
-    // Calculate totals whenever deductions change
+    // Calculate lorry hire when tons or rate changes
     useEffect(() => {
-        const totalDeductions = parseFloat(formData.advance_paid || 0) +
+        if (formData.tons && formData.rate_per_tonne) {
+            const lorryHire = parseFloat(formData.tons) * parseFloat(formData.rate_per_tonne);
+            setFormData(prev => ({ ...prev, lorry_hire_rs: lorryHire.toFixed(2) }));
+        // Note: LR doesn't have freight_amount - lorry_hire_rs is calculated from tons × rate
+        }
+    }, [formData.tons, formData.rate_per_tonne, selectedLR]);
+
+    // Calculate totals whenever deductions or lorry hire change
+    useEffect(() => {
+        const totalDeductions = parseFloat(formData.advance_paid_rs || 0) +
             parseFloat(formData.diesel_amount || 0) +
-            parseFloat(formData.loading_charges || 0) +
-            parseFloat(formData.unloading_charges || 0) +
+            parseFloat(formData.bank_amount || 0) +
             parseFloat(formData.other_deductions || 0);
 
-        const freight = selectedLR ? parseFloat(selectedLR.freight_amount) : 0;
-        const balance = freight - totalDeductions;
+        const lorryHire = parseFloat(formData.lorry_hire_rs || 0);
+        const balanceRs = lorryHire - totalDeductions;
 
         setCalculatedValues({
             totalDeductions,
-            balance,
+            balanceRs,
+            lorryHire,
         });
-    }, [formData, selectedLR]);
+    }, [formData.advance_paid_rs, formData.diesel_amount, formData.bank_amount, formData.other_deductions, formData.lorry_hire_rs]);
 
     const handleChange = (e) => {
-        setFormData({ ...formData, [e.target.name]: e.target.value });
+        const { name, value } = e.target;
+        
+        // If branch changes, update selectedBranchId to refetch LRs
+        if (name === 'branch') {
+            console.log('Branch changed to:', value, 'Type:', typeof value);
+            const branchValue = String(value); // Ensure it's a string
+            setSelectedBranchId(branchValue);
+            setFormData(prev => ({ ...prev, [name]: branchValue, lr: '' })); // Clear LR selection when branch changes
+            // Trigger refetch after state update
+            setTimeout(() => {
+                console.log('Calling refetchLRs with selectedBranchId:', branchValue);
+                refetchLRs();
+            }, 100);
+        } else {
+            setFormData(prev => ({ ...prev, [name]: value }));
+        }
     };
 
     const handleSubmit = (e) => {
         e.preventDefault();
 
-        // Clean up the form data - remove empty optional fields
+        // Clean up the form data
         const cleanedData = { ...formData };
-        if (!cleanedData.other_deductions_description) delete cleanedData.other_deductions_description;
-        if (!cleanedData.payment_date) delete cleanedData.payment_date;
-        if (!cleanedData.payment_mode) delete cleanedData.payment_mode;
-        if (!cleanedData.remarks) delete cleanedData.remarks;
+        
+        // Branch managers: Remove branch field (backend auto-assigns from user.branch)
+        // SuperAdmin: Keep branch field (must be provided)
+        if (!isSuperAdmin) {
+            delete cleanedData.branch;
+        }
+        
+        const optionalFields = ['invoice_number', 'owner_name', 'owner_mob', 'pump_name', 
+            'other_deductions_description', 'note', 'remarks'];
+        
+        optionalFields.forEach(field => {
+            if (!cleanedData[field] || cleanedData[field] === '') {
+                delete cleanedData[field];
+            }
+        });
+
+        // Convert numbers - these MUST be sent as 0 if empty, never deleted
+        const numberFields = ['tons', 'rate_per_tonne', 'lorry_hire_rs', 'advance_paid_rs', 'diesel_amount', 
+                              'bank_amount', 'other_deductions'];
+        numberFields.forEach(field => {
+            if (cleanedData[field] || cleanedData[field] === 0 || cleanedData[field] === '0') {
+                cleanedData[field] = parseFloat(cleanedData[field] || 0);
+            } else {
+                // Set to 0 if not provided
+                cleanedData[field] = 0;
+            }
+        });
+        
+        // Note: truck, from_location, to_location, driver_name, driver_mob, lr_reference, tons
+        // will be auto-populated from LR by the backend if not provided, so we don't need to
+        // include them if empty. However, if they are provided, keep them.
 
         onSubmit(cleanedData);
     };
@@ -286,7 +553,7 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
                 style={{
                     background: 'white',
                     borderRadius: '16px',
-                    maxWidth: '900px',
+                    maxWidth: '1000px',
                     width: '100%',
                     maxHeight: '90vh',
                     overflow: 'auto',
@@ -295,7 +562,10 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
                 onClick={(e) => e.stopPropagation()}
             >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                    <h2 style={{ fontSize: '24px', fontWeight: 700 }}>Create New HPA</h2>
+                    <div>
+                        <h2 style={{ fontSize: '24px', fontWeight: 700 }}>Create New HPA</h2>
+                        <p style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>HPA number will match LR number automatically</p>
+                    </div>
                     <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px' }}>
                         <XMarkIcon style={{ width: '24px', height: '24px', color: '#6b7280' }} />
                     </button>
@@ -303,140 +573,284 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
 
                 <form onSubmit={handleSubmit}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px' }}>
-                        {/* LR Selection */}
-                        <div style={{ gridColumn: 'span 2' }}>
+                        {/* Branch Selection - SuperAdmin only */}
+                        {isSuperAdmin && (
+                            <div style={{ gridColumn: 'span 2' }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    Branch *
+                                </label>
+                                <select name="branch" className="input" required onChange={handleChange} value={formData.branch}>
+                                    <option value="">Select Branch</option>
+                                    {branches.map(branch => (
+                                        <option key={branch.id} value={branch.id}>{branch.name} ({branch.code})</option>
+                                    ))}
+                                </select>
+                                <div style={{ marginTop: '8px', padding: '12px', background: '#fef3c7', borderRadius: '8px', border: '1px solid #fbbf24' }}>
+                                    <p style={{ fontSize: '13px', color: '#92400e', margin: 0 }}>
+                                        ⚠️ <strong>Select branch for this HPA.</strong> Branch users get auto-assigned.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* HPA Date */}
+                        <div>
                             <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Select LR *
+                                HPA Date *
                             </label>
-                            <select name="lr" className="input" required onChange={handleChange} value={formData.lr}>
-                                <option value="">Select Lorry Receipt</option>
-                                {lrs.map(lr => (
-                                    <option key={lr.id} value={lr.id}>
-                                        {lr.lr_number} - {lr.truck_number} - ₹{parseFloat(lr.freight_amount).toLocaleString()}
-                                    </option>
-                                ))}
-                            </select>
+                            <input type="date" name="hpa_date" className="input" required onChange={handleChange} value={formData.hpa_date} />
                         </div>
 
-                        {/* Auto-populated info */}
+                        {/* LR Selection - CRITICAL */}
+                        <div style={{ gridColumn: 'span 2' }}>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Select LR * (HPA number will match this LR number)
+                            </label>
+                            {isSuperAdmin && !selectedBranchId ? (
+                                <div style={{ padding: '12px', background: '#fef3c7', borderRadius: '8px', border: '1px solid #fbbf24' }}>
+                                    <p style={{ fontSize: '13px', color: '#92400e', margin: 0 }}>
+                                        ⚠️ Please select a branch first to see available LRs
+                                    </p>
+                                </div>
+                            ) : isLoadingLRs ? (
+                                <div style={{ padding: '12px', textAlign: 'center', color: '#6b7280' }}>
+                                    Loading LRs...
+                                </div>
+                            ) : lrs.length === 0 ? (
+                                <div style={{ padding: '12px', background: '#fef3c7', borderRadius: '8px', border: '1px solid #fbbf24' }}>
+                                    <p style={{ fontSize: '13px', color: '#92400e', margin: 0 }}>
+                                        ⚠️ No LRs available for this branch without HPA. All LRs already have HPAs created.
+                                    </p>
+                                </div>
+                            ) : (
+                                <>
+                                    <select name="lr" className="input" required onChange={handleChange} value={formData.lr}>
+                                        <option value="">Select Lorry Receipt (only LRs without HPA)</option>
+                                        {lrs.map(lr => (
+                                            <option key={lr.id} value={lr.id}>
+                                                {lr.lr_number} - {lr.consignor_name} → {lr.consignee_name} - {lr.truck_number} - {lr.quantity_mt || 0} MT
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {selectedLR && (
+                                        <p style={{ fontSize: '12px', color: '#10b981', marginTop: '4px' }}>
+                                            ✓ HPA Number will be: <strong>{selectedLR.lr_number}</strong>
+                                        </p>
+                                    )}
+                                    {lrs.length > 0 && (
+                                        <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
+                                            {lrs.length} LR{lrs.length !== 1 ? 's' : ''} available without HPA
+                                        </p>
+                                    )}
+                                </>
+                            )}
+                        </div>
+
+                        {/* Invoice Number */}
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Invoice Number
+                            </label>
+                            <input type="text" name="invoice_number" className="input" onChange={handleChange} value={formData.invoice_number} placeholder="20153572" />
+                        </div>
+
+                        {/* Vehicle Number (Truck) - REQUIRED and EDITABLE */}
+                        <div style={{ gridColumn: 'span 2' }}>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Vehicle Number (Truck) *
+                            </label>
+                            <SearchableSelect
+                                options={trucks}
+                                onSearch={truckSearch.searchFunction}
+                                value={formData.truck}
+                                onChange={handleChange}
+                                placeholder="Search and select vehicle number..."
+                                name="truck"
+                                required
+                                getOptionLabel={(opt) => `${opt.truck_number}${opt.owner_name ? ` - ${opt.owner_name}` : ''}${opt.driver_name ? ` - Driver: ${opt.driver_name}` : ''}`}
+                                getOptionValue={(opt) => opt.id}
+                            />
+                            {selectedLR && selectedLR.truck && (
+                                <p style={{ fontSize: '12px', color: '#10b981', marginTop: '4px' }}>
+                                    ✓ Pre-filled from LR: <strong>{selectedLR.truck_number}</strong> - You can change it if needed
+                                </p>
+                            )}
+                        </div>
+
+                        {/* LR Reference */}
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                LR Reference
+                            </label>
+                            <input type="text" name="lr_reference" className="input" onChange={handleChange} value={formData.lr_reference} placeholder="Auto from LR" readOnly style={{ background: '#f9fafb' }} />
+                        </div>
+
+                        {/* Auto-populated info box */}
                         {selectedLR && (
-                            <>
-                                <div style={{ gridColumn: 'span 2', padding: '16px', background: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
-                                        <div>
-                                            <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Truck</p>
-                                            <p style={{ fontSize: '14px', fontWeight: 600 }}>{selectedLR.truck_number}</p>
-                                        </div>
-                                        <div>
-                                            <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Freight Amount</p>
-                                            <p style={{ fontSize: '14px', fontWeight: 600 }}>₹{parseFloat(selectedLR.freight_amount).toLocaleString()}</p>
-                                        </div>
-                                        <div>
-                                            <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Route</p>
-                                            <p style={{ fontSize: '14px', fontWeight: 600 }}>{selectedLR.from_location} → {selectedLR.to_location}</p>
-                                        </div>
+                            <div style={{ gridColumn: 'span 2', padding: '16px', background: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd' }}>
+                                <h4 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px', color: '#0369a1' }}>Auto-populated from LR:</h4>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+                                    <div>
+                                        <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>From</p>
+                                        <p style={{ fontSize: '14px', fontWeight: 600 }}>{selectedLR.from_location || '-'}</p>
+                                    </div>
+                                    <div>
+                                        <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>To</p>
+                                        <p style={{ fontSize: '14px', fontWeight: 600 }}>{selectedLR.to_location || '-'}</p>
+                                    </div>
+                                    <div>
+                                        <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Truck</p>
+                                        <p style={{ fontSize: '14px', fontWeight: 600 }}>{selectedLR.truck_number || '-'}</p>
                                     </div>
                                 </div>
-                            </>
+                            </div>
                         )}
 
-                        {/* Payment Breakdown */}
+                        {/* From/To Locations */}
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                From Location *
+                            </label>
+                            <input type="text" name="from_location" className="input" required onChange={handleChange} value={formData.from_location} placeholder="Auto from LR" />
+                        </div>
+
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                To Location *
+                            </label>
+                            <input type="text" name="to_location" className="input" required onChange={handleChange} value={formData.to_location} placeholder="Auto from LR" />
+                        </div>
+
+                        {/* Owner Details */}
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Owner Name
+                            </label>
+                            <input type="text" name="owner_name" className="input" onChange={handleChange} value={formData.owner_name} placeholder="If different from truck master" />
+                        </div>
+
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Owner Mobile
+                            </label>
+                            <input type="tel" name="owner_mob" className="input" onChange={handleChange} value={formData.owner_mob} placeholder="Optional" />
+                        </div>
+
+                        {/* Driver Details */}
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Driver Name *
+                            </label>
+                            <input type="text" name="driver_name" className="input" required onChange={handleChange} value={formData.driver_name} placeholder="Auto from LR" />
+                        </div>
+
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Driver Mobile *
+                            </label>
+                            <input type="tel" name="driver_mob" className="input" required onChange={handleChange} value={formData.driver_mob} placeholder="Auto from LR" />
+                        </div>
+
+                        {/* Quantity and Rate */}
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Tons *
+                            </label>
+                            <input type="number" step="0.01" name="tons" className="input" required onChange={handleChange} value={formData.tons} placeholder="Auto from LR" />
+                        </div>
+
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Rate per Tonne (₹) *
+                            </label>
+                            <input type="number" step="0.01" name="rate_per_tonne" className="input" required onChange={handleChange} value={formData.rate_per_tonne} placeholder="983" />
+                        </div>
+
+                        {/* Lorry Hire (Auto-calculated) */}
                         <div style={{ gridColumn: 'span 2' }}>
-                            <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px', color: '#111827' }}>Payment Breakdown</h3>
-                        </div>
-
-                        <div>
                             <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Advance Paid (₹) *
+                                Lorry Hire Rs. * (Auto-calculated: Tons × Rate)
                             </label>
-                            <input type="number" step="0.01" name="advance_paid" className="input" required onChange={handleChange} value={formData.advance_paid} placeholder="0" />
+                            <input type="number" step="0.01" name="lorry_hire_rs" className="input" required onChange={handleChange} value={formData.lorry_hire_rs} readOnly style={{ background: '#f9fafb', fontWeight: 600, fontSize: '16px' }} />
+                        </div>
+
+                        {/* Deductions Section - Money already paid/deducted before final settlement */}
+                        <div style={{ gridColumn: 'span 2', marginTop: '8px' }}>
+                            <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px', color: '#111827', borderTop: '2px solid #e5e7eb', paddingTop: '16px' }}>
+                                Deductions (Already Paid/Deducted)
+                            </h3>
+                            <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '16px' }}>
+                                Enter amounts already paid to driver or deducted (advance, diesel, bank charges, etc.). Final payments are tracked separately via Transactions.
+                            </p>
                         </div>
 
                         <div>
                             <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Diesel Amount (₹) *
+                                Less Advance (₹)
                             </label>
-                            <input type="number" step="0.01" name="diesel_amount" className="input" required onChange={handleChange} value={formData.diesel_amount} placeholder="0" />
+                            <input type="number" step="0.01" name="advance_paid_rs" className="input" onChange={handleChange} value={formData.advance_paid_rs} placeholder="0" />
                         </div>
 
                         <div>
                             <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Loading Charges (₹)
+                                Diesel Amount (₹)
                             </label>
-                            <input type="number" step="0.01" name="loading_charges" className="input" onChange={handleChange} value={formData.loading_charges} placeholder="0" />
+                            <input type="number" step="0.01" name="diesel_amount" className="input" onChange={handleChange} value={formData.diesel_amount} placeholder="0" />
                         </div>
 
                         <div>
                             <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Unloading Charges (₹)
+                                Pump Name
                             </label>
-                            <input type="number" step="0.01" name="unloading_charges" className="input" onChange={handleChange} value={formData.unloading_charges} placeholder="0" />
+                            <input type="text" name="pump_name" className="input" onChange={handleChange} value={formData.pump_name} placeholder="Shyamkey" />
                         </div>
 
                         <div>
                             <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Other Deductions (₹)
+                                Bank Amount (₹)
+                            </label>
+                            <input type="number" step="0.01" name="bank_amount" className="input" onChange={handleChange} value={formData.bank_amount} placeholder="0" />
+                        </div>
+
+                        <div style={{ gridColumn: 'span 2' }}>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Any Other Charges (₹)
                             </label>
                             <input type="number" step="0.01" name="other_deductions" className="input" onChange={handleChange} value={formData.other_deductions} placeholder="0" />
                         </div>
 
-                        <div>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Deduction Description
-                            </label>
-                            <input type="text" name="other_deductions_description" className="input" onChange={handleChange} value={formData.other_deductions_description} placeholder="Optional" />
-                        </div>
-
                         {/* Calculated Summary */}
-                        <div style={{ gridColumn: 'span 2', padding: '20px', background: '#f0fdf4', borderRadius: '12px', border: '2px solid #10b981' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+                        <div style={{ gridColumn: 'span 2', padding: '20px', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', borderRadius: '12px', border: '2px solid #10b981' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '12px' }}>
                                 <div>
-                                    <p style={{ fontSize: '12px', color: '#059669', marginBottom: '4px', fontWeight: 600 }}>Total Deductions</p>
-                                    <p style={{ fontSize: '20px', fontWeight: 700, color: '#ef4444' }}>₹{calculatedValues.totalDeductions.toLocaleString()}</p>
+                                    <p style={{ fontSize: '12px', color: '#059669', marginBottom: '4px', fontWeight: 600 }}>Total Lorry Hire</p>
+                                    <p style={{ fontSize: '24px', fontWeight: 700, color: '#111827' }}>₹{calculatedValues.lorryHire.toLocaleString()}</p>
                                 </div>
                                 <div>
-                                    <p style={{ fontSize: '12px', color: '#059669', marginBottom: '4px', fontWeight: 600 }}>Balance to Pay</p>
-                                    <p style={{ fontSize: '20px', fontWeight: 700, color: '#10b981' }}>₹{calculatedValues.balance.toLocaleString()}</p>
+                                    <p style={{ fontSize: '12px', color: '#059669', marginBottom: '4px', fontWeight: 600 }}>Already Deducted</p>
+                                    <p style={{ fontSize: '24px', fontWeight: 700, color: '#ef4444' }}>-₹{calculatedValues.totalDeductions.toLocaleString()}</p>
                                 </div>
                                 <div>
-                                    <p style={{ fontSize: '12px', color: '#059669', marginBottom: '4px', fontWeight: 600 }}>Freight Amount</p>
-                                    <p style={{ fontSize: '20px', fontWeight: 700 }}>₹{selectedLR ? parseFloat(selectedLR.freight_amount).toLocaleString() : '0'}</p>
+                                    <p style={{ fontSize: '12px', color: '#059669', marginBottom: '4px', fontWeight: 600 }}>Balance To Pay</p>
+                                    <p style={{ fontSize: '24px', fontWeight: 700, color: '#10b981' }}>₹{calculatedValues.balanceRs.toLocaleString()}</p>
                                 </div>
+                            </div>
+                            <div style={{ borderTop: '1px solid #86efac', paddingTop: '12px' }}>
+                                <p style={{ fontSize: '13px', color: '#059669', fontWeight: 600, textAlign: 'center' }}>
+                                    💡 Tip: After creating HPA, use the View button to track final payments via Transactions
+                                </p>
                             </div>
                         </div>
 
-                        {/* Payment Details */}
-                        <div style={{ gridColumn: 'span 2' }}>
-                            <h3 style={{ fontSize: '16px', fontWeight: 600, marginTop: '8px', marginBottom: '16px', color: '#111827' }}>Payment Details (Optional)</h3>
-                        </div>
-
-                        <div>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Paid Amount (₹)
-                            </label>
-                            <input type="number" step="0.01" name="paid_amount" className="input" onChange={handleChange} value={formData.paid_amount} placeholder="0" />
-                        </div>
-
-                        <div>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Payment Date
-                            </label>
-                            <input type="date" name="payment_date" className="input" onChange={handleChange} value={formData.payment_date} />
-                        </div>
-
+                        {/* Note */}
                         <div style={{ gridColumn: 'span 2' }}>
                             <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Payment Mode
+                                Note (Default delivery note)
                             </label>
-                            <select name="payment_mode" className="input" onChange={handleChange} value={formData.payment_mode}>
-                                <option value="">Select Mode</option>
-                                <option value="CASH">Cash</option>
-                                <option value="CHEQUE">Cheque</option>
-                                <option value="BANK_TRANSFER">Bank Transfer</option>
-                                <option value="UPI">UPI</option>
-                            </select>
+                            <textarea name="note" className="input" onChange={handleChange} value={formData.note} rows="2" placeholder="Delivery note..." />
                         </div>
 
+                        {/* Remarks */}
                         <div style={{ gridColumn: 'span 2' }}>
                             <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
                                 Remarks
@@ -454,6 +868,1035 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
                         </button>
                     </div>
                 </form>
+            </div>
+        </div>
+    );
+}
+
+function EditHPAModal({ hpa, onClose, onSubmit, isLoading }) {
+    const { user } = useAuth();
+    const isSuperAdmin = user?.role === 'SUPERADMIN';
+
+    const { data: branchesData } = useGetBranchesQuery();
+    const branches = Array.isArray(branchesData) ? branchesData : (branchesData?.results || []);
+
+    const { data: trucksData } = useGetTrucksQuery();
+    const trucks = Array.isArray(trucksData) ? trucksData : (trucksData?.results || []);
+
+    const [formData, setFormData] = useState({
+        branch: hpa.branch || '',
+        lr: hpa.lr || '',
+        truck: hpa.truck || '',
+        invoice_number: hpa.invoice_number || '',
+        hpa_date: hpa.hpa_date || new Date().toISOString().split('T')[0],
+        from_location: hpa.from_location || '',
+        to_location: hpa.to_location || '',
+        owner_name: hpa.owner_name || '',
+        owner_mob: hpa.owner_mob || '',
+        driver_name: hpa.driver_name || '',
+        driver_mob: hpa.driver_mob || '',
+        lr_reference: hpa.lr_reference || '',
+        tons: hpa.tons || '',
+        rate_per_tonne: hpa.rate_per_tonne || '',
+        lorry_hire_rs: hpa.lorry_hire_rs || '',
+        advance_paid_rs: hpa.advance_paid_rs || '0',
+        diesel_amount: hpa.diesel_amount || '0',
+        pump_name: hpa.pump_name || '',
+        bank_amount: hpa.bank_amount || '0',
+        other_deductions: hpa.other_deductions || '0',
+        note: hpa.note || '',
+        remarks: hpa.remarks || '',
+    });
+
+    const [calculatedValues, setCalculatedValues] = useState({
+        totalDeductions: 0,
+        balanceRs: 0,
+        lorryHire: 0,
+    });
+
+    // Calculate balance and deductions
+    useEffect(() => {
+        const lorryHire = parseFloat(formData.lorry_hire_rs) || 0;
+        const advance = parseFloat(formData.advance_paid_rs) || 0;
+        const diesel = parseFloat(formData.diesel_amount) || 0;
+        const bank = parseFloat(formData.bank_amount) || 0;
+        const other = parseFloat(formData.other_deductions) || 0;
+
+        const totalDeductions = advance + diesel + bank + other;
+        const balanceRs = lorryHire - totalDeductions;
+
+        setCalculatedValues({
+            totalDeductions,
+            balanceRs: balanceRs < 0 ? 0 : balanceRs,
+            lorryHire,
+        });
+    }, [formData.lorry_hire_rs, formData.advance_paid_rs, formData.diesel_amount, formData.bank_amount, formData.other_deductions]);
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData({ ...formData, [name]: value });
+    };
+
+    const handleSelectChange = (name, value) => {
+        setFormData({ ...formData, [name]: value });
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        try {
+            await onSubmit(formData);
+        } catch (error) {
+            console.error('Error updating HPA:', error);
+        }
+    };
+
+    return (
+        <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px'
+        }} onClick={onClose}>
+            <div
+                style={{
+                    background: 'white',
+                    borderRadius: '16px',
+                    maxWidth: '800px',
+                    width: '100%',
+                    maxHeight: '90vh',
+                    overflow: 'auto',
+                    padding: '32px'
+                }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                    <h2 style={{ fontSize: '24px', fontWeight: 700 }}>Edit HPA - {hpa.hpa_number}</h2>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px' }}>
+                        <XMarkIcon style={{ width: '24px', height: '24px', color: '#6b7280' }} />
+                    </button>
+                </div>
+
+                <form onSubmit={handleSubmit}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+                        {/* Branch - Read only for non-superadmin */}
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                Branch
+                            </label>
+                            <div style={{
+                                padding: '10px 12px',
+                                background: '#f9fafb',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                border: '1px solid #e5e7eb'
+                            }}>
+                                {hpa.branch_name || 'N/A'}
+                            </div>
+                        </div>
+
+                        {/* LR - Read only */}
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                Lorry Receipt (LR)
+                            </label>
+                            <div style={{
+                                padding: '10px 12px',
+                                background: '#f9fafb',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                border: '1px solid #e5e7eb'
+                            }}>
+                                {hpa.lr?.lr_number || 'N/A'}
+                            </div>
+                        </div>
+
+                        {/* Truck Selection - Editable */}
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                Truck <span style={{ color: '#ef4444' }}>*</span>
+                            </label>
+                            <select
+                                name="truck"
+                                value={formData.truck}
+                                onChange={(e) => handleSelectChange('truck', e.target.value)}
+                                required
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontFamily: 'inherit'
+                                }}
+                            >
+                                <option value="">Select Truck...</option>
+                                {trucks.map(truck => (
+                                    <option key={truck.id} value={truck.id}>
+                                        {truck.registration_number} - {truck.capacity} Ton
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Invoice Number */}
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                Invoice Number
+                            </label>
+                            <input
+                                type="text"
+                                name="invoice_number"
+                                value={formData.invoice_number}
+                                onChange={handleChange}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontFamily: 'inherit'
+                                }}
+                            />
+                        </div>
+
+                        {/* HPA Date */}
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                HPA Date
+                            </label>
+                            <input
+                                type="date"
+                                name="hpa_date"
+                                value={formData.hpa_date}
+                                onChange={handleChange}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontFamily: 'inherit'
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Pre-filled from LR */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px', background: '#f9fafb', padding: '16px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px', color: '#6b7280' }}>From Location</label>
+                            <p style={{ margin: 0, fontWeight: 600, fontSize: '14px' }}>{formData.from_location || 'N/A'}</p>
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px', color: '#6b7280' }}>To Location</label>
+                            <p style={{ margin: 0, fontWeight: 600, fontSize: '14px' }}>{formData.to_location || 'N/A'}</p>
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px', color: '#6b7280' }}>Owner Name</label>
+                            <p style={{ margin: 0, fontWeight: 600, fontSize: '14px' }}>{formData.owner_name || 'N/A'}</p>
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px', color: '#6b7280' }}>Owner Mobile</label>
+                            <p style={{ margin: 0, fontWeight: 600, fontSize: '14px' }}>{formData.owner_mob || 'N/A'}</p>
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px', color: '#6b7280' }}>Driver Name</label>
+                            <p style={{ margin: 0, fontWeight: 600, fontSize: '14px' }}>{formData.driver_name || 'N/A'}</p>
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px', color: '#6b7280' }}>Driver Mobile</label>
+                            <p style={{ margin: 0, fontWeight: 600, fontSize: '14px' }}>{formData.driver_mob || 'N/A'}</p>
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px', color: '#6b7280' }}>LR Number</label>
+                            <p style={{ margin: 0, fontWeight: 600, fontSize: '14px' }}>{formData.lr_reference || 'N/A'}</p>
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px', color: '#6b7280' }}>Tons</label>
+                            <p style={{ margin: 0, fontWeight: 600, fontSize: '14px' }}>{formData.tons || 'N/A'}</p>
+                        </div>
+                    </div>
+
+                    {/* HPA Amount Details */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                Rate per Tonne (₹)
+                            </label>
+                            <input
+                                type="number"
+                                name="rate_per_tonne"
+                                value={formData.rate_per_tonne}
+                                onChange={handleChange}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontFamily: 'inherit'
+                                }}
+                            />
+                        </div>
+
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                Lorry Hire (₹) <span style={{ color: '#ef4444' }}>*</span>
+                            </label>
+                            <input
+                                type="number"
+                                name="lorry_hire_rs"
+                                value={formData.lorry_hire_rs}
+                                onChange={handleChange}
+                                required
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontFamily: 'inherit'
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Less Deductions Section */}
+                    <div style={{ marginBottom: '24px', padding: '16px', background: '#f0fdf4', border: '1px solid #dcfce7', borderRadius: '8px' }}>
+                        <h3 style={{ marginTop: 0, marginBottom: '16px', fontSize: '15px', fontWeight: 600 }}>Less Deductions</h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                    Less Advance (₹)
+                                </label>
+                                <input
+                                    type="number"
+                                    name="advance_paid_rs"
+                                    value={formData.advance_paid_rs}
+                                    onChange={handleChange}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: '1px solid #d1d5db',
+                                        borderRadius: '8px',
+                                        fontSize: '14px',
+                                        fontFamily: 'inherit'
+                                    }}
+                                />
+                            </div>
+
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                    Diesel Amount (₹)
+                                </label>
+                                <input
+                                    type="number"
+                                    name="diesel_amount"
+                                    value={formData.diesel_amount}
+                                    onChange={handleChange}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: '1px solid #d1d5db',
+                                        borderRadius: '8px',
+                                        fontSize: '14px',
+                                        fontFamily: 'inherit'
+                                    }}
+                                />
+                            </div>
+
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                    Pump Name
+                                </label>
+                                <input
+                                    type="text"
+                                    name="pump_name"
+                                    value={formData.pump_name}
+                                    onChange={handleChange}
+                                    placeholder="Enter pump name"
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: '1px solid #d1d5db',
+                                        borderRadius: '8px',
+                                        fontSize: '14px',
+                                        fontFamily: 'inherit'
+                                    }}
+                                />
+                            </div>
+
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                    Bank Amount (₹)
+                                </label>
+                                <input
+                                    type="number"
+                                    name="bank_amount"
+                                    value={formData.bank_amount}
+                                    onChange={handleChange}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: '1px solid #d1d5db',
+                                        borderRadius: '8px',
+                                        fontSize: '14px',
+                                        fontFamily: 'inherit'
+                                    }}
+                                />
+                            </div>
+
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                    Any Other Charges (₹)
+                                </label>
+                                <input
+                                    type="number"
+                                    name="other_deductions"
+                                    value={formData.other_deductions}
+                                    onChange={handleChange}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: '1px solid #d1d5db',
+                                        borderRadius: '8px',
+                                        fontSize: '14px',
+                                        fontFamily: 'inherit'
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Summary Section */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+                        <div style={{ padding: '16px', background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)', borderRadius: '12px', border: '2px solid #f59e0b' }}>
+                            <p style={{ fontSize: '12px', color: '#92400e', margin: '0 0 8px 0', fontWeight: 600 }}>Total Deductions</p>
+                            <p style={{ fontSize: '24px', fontWeight: 700, color: '#111827', margin: 0 }}>
+                                ₹{calculatedValues.totalDeductions.toLocaleString()}
+                            </p>
+                        </div>
+                        <div style={{ padding: '16px', background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)', borderRadius: '12px', border: '2px solid #3b82f6' }}>
+                            <p style={{ fontSize: '12px', color: '#1e40af', margin: '0 0 8px 0', fontWeight: 600 }}>Lorry Hire</p>
+                            <p style={{ fontSize: '24px', fontWeight: 700, color: '#111827', margin: 0 }}>
+                                ₹{calculatedValues.lorryHire.toLocaleString()}
+                            </p>
+                        </div>
+                        <div style={{ padding: '16px', background: 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)', borderRadius: '12px', border: '2px solid #10b981' }}>
+                            <p style={{ fontSize: '12px', color: '#065f46', margin: '0 0 8px 0', fontWeight: 600 }}>Balance Amount</p>
+                            <p style={{ fontSize: '24px', fontWeight: 700, color: '#111827', margin: 0 }}>
+                                ₹{calculatedValues.balanceRs.toLocaleString()}
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Notes and Remarks */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                Notes
+                            </label>
+                            <textarea
+                                name="note"
+                                value={formData.note}
+                                onChange={handleChange}
+                                rows="4"
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontFamily: 'inherit',
+                                    resize: 'vertical'
+                                }}
+                            />
+                        </div>
+
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                Remarks
+                            </label>
+                            <textarea
+                                name="remarks"
+                                value={formData.remarks}
+                                onChange={handleChange}
+                                rows="4"
+                                placeholder="Enter any remarks"
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontFamily: 'inherit',
+                                    resize: 'vertical'
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Buttons */}
+                    <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            style={{
+                                padding: '10px 24px',
+                                background: '#f3f4f6',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                fontWeight: 600,
+                                cursor: 'pointer'
+                            }}
+                        >
+                            Cancel
+                        </button>
+                        <button type="submit" className="btn btn-primary" disabled={isLoading}>
+                            {isLoading ? 'Updating...' : 'Update HPA'}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+}
+
+// Transactions Modal Component
+function TransactionsModal({ hpa, onClose }) {
+    const { data: transactionsData, isLoading: isLoadingTransactions } = useGetHPATransactionsQuery(hpa.id);
+    const [addTransaction, { isLoading: isAdding }] = useAddHPATransactionMutation();
+    const [showAddForm, setShowAddForm] = useState(false);
+    const [formData, setFormData] = useState({
+        transaction_type: 'ADVANCE',
+        amount: '',
+        payment_mode: 'CASH',
+        description: '',
+        pump_name: '',
+        transaction_date: new Date().toISOString().split('T')[0],
+    });
+
+    const transactions = transactionsData?.transactions || [];
+
+    // Debug: Log what we received
+    console.log('🔍 TransactionsModal Debug:', {
+        transactionsData,
+        parsedTransactions: transactions,
+        length: transactions.length,
+    });
+
+    const handleChange = (e) => {
+        setFormData({ ...formData, [e.target.name]: e.target.value });
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        try {
+            await addTransaction({ hpaId: hpa.id, ...formData }).unwrap();
+            alert('✅ Transaction added successfully!');
+            setFormData({
+                transaction_type: 'ADVANCE',
+                amount: '',
+                payment_mode: 'CASH',
+                description: '',
+                pump_name: '',
+                transaction_date: new Date().toISOString().split('T')[0],
+            });
+            setShowAddForm(false);
+            // RTK Query will automatically refetch due to invalidatesTags
+        } catch (error) {
+            console.error('Error adding transaction:', error);
+            alert('Error adding transaction: ' + (error.data?.detail || error.message || 'Unknown error'));
+        }
+    };
+
+    const getTransactionTypeBadge = (type) => {
+        const badges = {
+            'ADVANCE': { class: 'badge-info', label: 'Advance' },
+            'DIESEL': { class: 'badge-warning', label: 'Diesel' },
+            'BANK': { class: 'badge-success', label: 'Bank' },
+            'EXTRA': { class: 'badge-error', label: 'Extra' },
+            'OTHER': { class: 'badge-secondary', label: 'Other' },
+        };
+        return badges[type] || badges['OTHER'];
+    };
+
+    // Calculate totals by type
+    const totals = transactions.reduce((acc, t) => {
+        acc[t.transaction_type] = (acc[t.transaction_type] || 0) + parseFloat(t.amount || 0);
+        acc.total += parseFloat(t.amount || 0);
+        return acc;
+    }, { ADVANCE: 0, DIESEL: 0, BANK: 0, EXTRA: 0, OTHER: 0, total: 0 });
+
+    return (
+        <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px'
+        }} onClick={onClose}>
+            <div
+                style={{
+                    background: 'white',
+                    borderRadius: '16px',
+                    maxWidth: '1000px',
+                    width: '100%',
+                    maxHeight: '90vh',
+                    overflow: 'auto',
+                    padding: '32px'
+                }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                    <div>
+                        <h2 style={{ fontSize: '24px', fontWeight: 700 }}>HPA Transactions</h2>
+                        <p style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
+                            HPA #{hpa.hpa_number} - Track all advances, diesel, bank, and extra expenses
+                        </p>
+                    </div>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px' }}>
+                        <XMarkIcon style={{ width: '24px', height: '24px', color: '#6b7280' }} />
+                    </button>
+                </div>
+
+                {/* Transaction Summary Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginBottom: '24px' }}>
+                    <div style={{ padding: '16px', background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)', borderRadius: '12px', border: '2px solid #3b82f6' }}>
+                        <p style={{ fontSize: '11px', color: '#1e40af', marginBottom: '4px', fontWeight: 600 }}>Total Advance</p>
+                        <p style={{ fontSize: '20px', fontWeight: 700, color: '#111827' }}>₹{totals.ADVANCE.toLocaleString()}</p>
+                    </div>
+                    <div style={{ padding: '16px', background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)', borderRadius: '12px', border: '2px solid #f59e0b' }}>
+                        <p style={{ fontSize: '11px', color: '#92400e', marginBottom: '4px', fontWeight: 600 }}>Total Diesel</p>
+                        <p style={{ fontSize: '20px', fontWeight: 700, color: '#111827' }}>₹{totals.DIESEL.toLocaleString()}</p>
+                    </div>
+                    <div style={{ padding: '16px', background: 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)', borderRadius: '12px', border: '2px solid #10b981' }}>
+                        <p style={{ fontSize: '11px', color: '#065f46', marginBottom: '4px', fontWeight: 600 }}>Total Bank</p>
+                        <p style={{ fontSize: '20px', fontWeight: 700, color: '#111827' }}>₹{totals.BANK.toLocaleString()}</p>
+                    </div>
+                    <div style={{ padding: '16px', background: 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)', borderRadius: '12px', border: '2px solid #ef4444' }}>
+                        <p style={{ fontSize: '11px', color: '#991b1b', marginBottom: '4px', fontWeight: 600 }}>Extras/Other</p>
+                        <p style={{ fontSize: '20px', fontWeight: 700, color: '#111827' }}>₹{(totals.EXTRA + totals.OTHER).toLocaleString()}</p>
+                    </div>
+                    <div style={{ padding: '16px', background: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)', borderRadius: '12px', border: '2px solid #6366f1' }}>
+                        <p style={{ fontSize: '11px', color: '#3730a3', marginBottom: '4px', fontWeight: 600 }}>Remaining Balance</p>
+                        <p style={{ fontSize: '20px', fontWeight: 700, color: '#111827' }}>₹{((parseFloat(hpa.balance_rs) || 0) - totals.total).toLocaleString()}</p>
+                    </div>
+                </div>
+
+                {/* Debug Info - Transaction Count */}
+                <div style={{ marginBottom: '16px', padding: '12px', background: '#fef3c7', borderRadius: '8px', fontSize: '12px', color: '#92400e', border: '2px solid #f59e0b' }}>
+                    <strong>📊 Debug Info:</strong><br/>
+                    API Response Type: {typeof transactionsData === 'object' ? 'Object' : typeof transactionsData}<br/>
+                    Transactions Found: <strong>{transactions.length}</strong><br/>
+                    Has "transactions" field: {transactionsData?.transactions ? '✅ Yes' : '❌ No'}<br/>
+                    Has "results" field: {transactionsData?.results ? '✅ Yes' : '❌ No'}<br/>
+                    Loading: {isLoadingTransactions ? '🔄 Yes' : '✅ No'}<br/>
+                    Raw Data Keys: {transactionsData ? Object.keys(transactionsData).join(', ') : 'null'}
+                </div>
+
+                {/* Add Transaction Button */}
+                {!showAddForm && (
+                    <button 
+                        className="btn btn-primary" 
+                        onClick={() => setShowAddForm(true)}
+                        style={{ marginBottom: '20px', width: '100%' }}
+                    >
+                        <PlusIcon style={{ width: '20px', height: '20px' }} />
+                        Add New Transaction
+                    </button>
+                )}
+
+                {/* Add Transaction Form */}
+                {showAddForm && (
+                    <div style={{ marginBottom: '24px', padding: '20px', background: '#f9fafb', borderRadius: '12px', border: '2px solid #e5e7eb' }}>
+                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>Add New Transaction</h3>
+                        <form onSubmit={handleSubmit}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                        Transaction Type *
+                                    </label>
+                                    <select name="transaction_type" className="input" required onChange={handleChange} value={formData.transaction_type}>
+                                        <option value="ADVANCE">Advance Payment</option>
+                                        <option value="DIESEL">Diesel</option>
+                                        <option value="BANK">Bank</option>
+                                        <option value="EXTRA">Extra Charges</option>
+                                        <option value="OTHER">Other</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                        Amount (₹) *
+                                    </label>
+                                    <input type="number" step="0.01" name="amount" className="input" required onChange={handleChange} value={formData.amount} placeholder="0.00" />
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                        Payment Mode
+                                    </label>
+                                    <select name="payment_mode" className="input" onChange={handleChange} value={formData.payment_mode}>
+                                        <option value="CASH">Cash</option>
+                                        <option value="CHEQUE">Cheque</option>
+                                        <option value="BANK_TRANSFER">Bank Transfer</option>
+                                        <option value="UPI">UPI</option>
+                                        <option value="NEFT">NEFT</option>
+                                        <option value="RTGS">RTGS</option>
+                                        <option value="IMPS">IMPS</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                        Date *
+                                    </label>
+                                    <input type="date" name="transaction_date" className="input" required onChange={handleChange} value={formData.transaction_date} />
+                                </div>
+
+                                {formData.transaction_type === 'DIESEL' && (
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                            Pump Name
+                                        </label>
+                                        <input type="text" name="pump_name" className="input" onChange={handleChange} value={formData.pump_name} placeholder="e.g., Shyamkey" />
+                                    </div>
+                                )}
+
+                                <div style={{ gridColumn: 'span 2' }}>
+                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                        Description
+                                    </label>
+                                    <textarea name="description" className="input" onChange={handleChange} value={formData.description} rows="2" placeholder="Transaction details..." />
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '12px', marginTop: '16px', justifyContent: 'flex-end' }}>
+                                <button type="button" className="btn btn-secondary" onClick={() => setShowAddForm(false)}>
+                                    Cancel
+                                </button>
+                                <button type="submit" className="btn btn-primary" disabled={isAdding}>
+                                    {isAdding ? 'Adding...' : 'Add Transaction'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                )}
+
+                {/* Transactions List */}
+                <div>
+                    <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>All Transactions</h3>
+                    {isLoadingTransactions ? (
+                        <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>Loading transactions...</div>
+                    ) : transactions.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af', background: '#f9fafb', borderRadius: '12px' }}>
+                            No transactions yet. Add the first transaction!
+                        </div>
+                    ) : (
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
+                                        <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>Date</th>
+                                        <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>Type</th>
+                                        <th style={{ padding: '12px', textAlign: 'right', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>Amount</th>
+                                        <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>Payment Mode</th>
+                                        <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>Description</th>
+                                        <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>Pump Name</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {transactions.map((transaction, index) => {
+                                        const badge = getTransactionTypeBadge(transaction.transaction_type);
+                                        return (
+                                            <tr
+                                                key={transaction.id}
+                                                style={{ borderBottom: index < transactions.length - 1 ? '1px solid #f3f4f6' : 'none' }}
+                                            >
+                                                <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563' }}>
+                                                    {transaction.transaction_date ? new Date(transaction.transaction_date).toLocaleDateString() : '-'}
+                                                </td>
+                                                <td style={{ padding: '16px 12px' }}>
+                                                    <span className={`badge ${badge.class}`}>{badge.label}</span>
+                                                </td>
+                                                <td style={{ padding: '16px 12px', fontSize: '14px', fontWeight: 600, color: '#111827', textAlign: 'right' }}>
+                                                    ₹{parseFloat(transaction.amount || 0).toLocaleString()}
+                                                </td>
+                                                <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563' }}>
+                                                    {transaction.payment_mode || '-'}
+                                                </td>
+                                                <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563' }}>
+                                                    {transaction.description || '-'}
+                                                </td>
+                                                <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563' }}>
+                                                    {transaction.pump_name || '-'}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                                <tfoot>
+                                    <tr style={{ borderTop: '2px solid #e5e7eb', background: '#f9fafb' }}>
+                                        <td colSpan="2" style={{ padding: '16px 12px', fontSize: '14px', fontWeight: 700, color: '#111827' }}>
+                                            Total Transactions
+                                        </td>
+                                        <td style={{ padding: '16px 12px', fontSize: '16px', fontWeight: 700, color: '#10b981', textAlign: 'right' }}>
+                                            ₹{totals.total.toLocaleString()}
+                                        </td>
+                                        <td colSpan="3"></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+// View HPA Modal Component
+function ViewHPAModal({ hpa, onClose }) {
+    const { data: transactionsData, isLoading: isLoadingTransactions } = useGetHPATransactionsQuery(hpa.id);
+    const transactions = transactionsData?.transactions || [];
+
+    const getTransactionTypeBadge = (type) => {
+        const badges = {
+            'ADVANCE': { class: 'badge-info', label: 'Advance' },
+            'DIESEL': { class: 'badge-warning', label: 'Diesel' },
+            'BANK': { class: 'badge-success', label: 'Bank' },
+            'EXTRA': { class: 'badge-error', label: 'Extra' },
+            'OTHER': { class: 'badge-secondary', label: 'Other' },
+        };
+        return badges[type] || badges['OTHER'];
+    };
+
+    // Calculate transaction totals
+    const totals = transactions.reduce((acc, t) => {
+        acc[t.transaction_type] = (acc[t.transaction_type] || 0) + parseFloat(t.amount || 0);
+        acc.total += parseFloat(t.amount || 0);
+        return acc;
+    }, { ADVANCE: 0, DIESEL: 0, BANK: 0, EXTRA: 0, OTHER: 0, total: 0 });
+
+    const remainingBalance = (parseFloat(hpa.lorry_hire_rs) || 0) - (parseFloat(hpa.total_deductions) || 0) - totals.total;
+
+    const downloadTransactionReport = () => {
+        let csv = 'Transaction Report - HPA #' + hpa.hpa_number + '\n';
+        csv += 'Generated Date: ' + new Date().toLocaleString() + '\n\n';
+        csv += 'HPA Details\n';
+        csv += 'LR Number,' + hpa.lr_number + '\n';
+        csv += 'Truck Number,' + hpa.truck_number + '\n';
+        csv += 'Lorry Hire (₹),' + parseFloat(hpa.lorry_hire_rs || 0).toLocaleString() + '\n';
+        csv += 'Deductions (₹),-' + parseFloat(hpa.total_deductions || 0).toLocaleString() + '\n\n';
+        csv += 'Transaction History\n';
+        csv += 'Date,Type,Amount,Payment Mode,Description\n';
+        
+        transactions.forEach(t => {
+            csv += `"${t.transaction_date}","${t.transaction_type}","${t.amount}","${t.payment_mode || '-'}","${t.description || ''}"\n`;
+        });
+        
+        csv += '\nTransaction Totals\n';
+        csv += 'Advance (₹),' + totals.ADVANCE + '\n';
+        csv += 'Diesel (₹),' + totals.DIESEL + '\n';
+        csv += 'Bank (₹),' + totals.BANK + '\n';
+        csv += 'Extra (₹),' + totals.EXTRA + '\n';
+        csv += 'Other (₹),' + totals.OTHER + '\n';
+        csv += 'Total Transactions (₹),' + totals.total + '\n';
+        csv += 'Remaining Balance (₹),' + remainingBalance + '\n';
+        
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `HPA_${hpa.hpa_number}_Transactions.csv`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    };
+
+    return (
+        <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px'
+        }} onClick={onClose}>
+            <div
+                style={{
+                    background: 'white',
+                    borderRadius: '16px',
+                    maxWidth: '1000px',
+                    width: '100%',
+                    maxHeight: '90vh',
+                    overflow: 'auto',
+                    padding: '32px'
+                }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                    <div>
+                        <h2 style={{ fontSize: '24px', fontWeight: 700 }}>HPA View - {hpa.hpa_number}</h2>
+                        <p style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
+                            LR: {hpa.lr_number} | Truck: {hpa.truck_number} | Date: {new Date(hpa.hpa_date).toLocaleDateString()}
+                        </p>
+                    </div>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px' }}>
+                        <XMarkIcon style={{ width: '24px', height: '24px', color: '#6b7280' }} />
+                    </button>
+                </div>
+
+                {/* HPA Summary */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '32px' }}>
+                    <div style={{ padding: '16px', background: '#f0f9ff', borderRadius: '12px', border: '2px solid #0284c7' }}>
+                        <p style={{ fontSize: '11px', color: '#0c4a6e', marginBottom: '4px', fontWeight: 600 }}>Lorry Hire Amount</p>
+                        <p style={{ fontSize: '20px', fontWeight: 700, color: '#111827' }}>₹{parseFloat(hpa.lorry_hire_rs || 0).toLocaleString()}</p>
+                    </div>
+                    <div style={{ padding: '16px', background: '#fef3c7', borderRadius: '12px', border: '2px solid #f59e0b' }}>
+                        <p style={{ fontSize: '11px', color: '#92400e', marginBottom: '4px', fontWeight: 600 }}>Initial Deductions</p>
+                        <p style={{ fontSize: '20px', fontWeight: 700, color: '#dc2626' }}>-₹{parseFloat(hpa.total_deductions || 0).toLocaleString()}</p>
+                    </div>
+                    <div style={{ padding: '16px', background: '#fee2e2', borderRadius: '12px', border: '2px solid #ef4444' }}>
+                        <p style={{ fontSize: '11px', color: '#991b1b', marginBottom: '4px', fontWeight: 600 }}>Additional Payments</p>
+                        <p style={{ fontSize: '20px', fontWeight: 700, color: '#111827' }}>-₹{totals.total.toLocaleString()}</p>
+                    </div>
+                    <div style={{ padding: '16px', background: '#dbeafe', borderRadius: '12px', border: '2px solid #3b82f6' }}>
+                        <p style={{ fontSize: '11px', color: '#1e40af', marginBottom: '4px', fontWeight: 600 }}>Remaining Balance</p>
+                        <p style={{ fontSize: '20px', fontWeight: 700, color: '#10b981' }}>₹{remainingBalance.toLocaleString()}</p>
+                    </div>
+                </div>
+
+                {/* Initial Deductions Breakdown */}
+                <div style={{ marginBottom: '32px', padding: '24px', background: '#fef3c7', borderRadius: '12px', border: '2px solid #f59e0b' }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '16px', color: '#92400e' }}>
+                        Initial Deductions Breakdown (Entered at HPA Creation)
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+                        {parseFloat(hpa.advance_paid_rs || 0) > 0 && (
+                            <div style={{ padding: '12px', background: 'white', borderRadius: '8px' }}>
+                                <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Advance Paid</p>
+                                <p style={{ fontSize: '18px', fontWeight: 600, color: '#111827' }}>₹{parseFloat(hpa.advance_paid_rs || 0).toLocaleString()}</p>
+                            </div>
+                        )}
+                        {parseFloat(hpa.diesel_amount || 0) > 0 && (
+                            <div style={{ padding: '12px', background: 'white', borderRadius: '8px' }}>
+                                <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Diesel Amount</p>
+                                <p style={{ fontSize: '18px', fontWeight: 600, color: '#111827' }}>₹{parseFloat(hpa.diesel_amount || 0).toLocaleString()}</p>
+                                {hpa.pump_name && <p style={{ fontSize: '11px', color: '#9ca3af', marginTop: '2px' }}>Pump: {hpa.pump_name}</p>}
+                            </div>
+                        )}
+                        {parseFloat(hpa.bank_amount || 0) > 0 && (
+                            <div style={{ padding: '12px', background: 'white', borderRadius: '8px' }}>
+                                <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Bank Amount</p>
+                                <p style={{ fontSize: '18px', fontWeight: 600, color: '#111827' }}>₹{parseFloat(hpa.bank_amount || 0).toLocaleString()}</p>
+                            </div>
+                        )}
+                        {parseFloat(hpa.other_deductions || 0) > 0 && (
+                            <div style={{ padding: '12px', background: 'white', borderRadius: '8px' }}>
+                                <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Other Charges</p>
+                                <p style={{ fontSize: '18px', fontWeight: 600, color: '#111827' }}>₹{parseFloat(hpa.other_deductions || 0).toLocaleString()}</p>
+                                {hpa.other_deductions_description && <p style={{ fontSize: '11px', color: '#9ca3af', marginTop: '2px' }}>{hpa.other_deductions_description}</p>}
+                            </div>
+                        )}
+                    </div>
+                    {parseFloat(hpa.total_deductions || 0) === 0 && (
+                        <p style={{ fontSize: '13px', color: '#6b7280', fontStyle: 'italic' }}>No initial deductions were entered for this HPA</p>
+                    )}
+                </div>
+
+                {/* Download Button */}
+                <div style={{ marginBottom: '24px', display: 'flex', gap: '12px' }}>
+                    <button
+                        onClick={downloadTransactionReport}
+                        className="btn btn-primary"
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                    >
+                        <ArrowDownTrayIcon style={{ width: '18px', height: '18px' }} />
+                        Download Transactions Report
+                    </button>
+                </div>
+
+                {/* Transactions List */}
+                <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px' }}>Additional Payment Transactions</h3>
+                <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '16px' }}>
+                    Payments made after HPA creation to settle the remaining balance
+                </p>
+                {isLoadingTransactions ? (
+                    <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af' }}>
+                        Loading transactions...
+                    </div>
+                ) : transactions.length === 0 ? (
+                    <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af' }}>
+                        No transactions recorded for this HPA
+                    </div>
+                ) : (
+                    <div style={{ overflowX: 'auto', marginBottom: '24px' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead style={{ background: '#f9fafb', borderBottom: '2px solid #e5e7eb' }}>
+                                <tr>
+                                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, fontSize: '13px', color: '#6b7280' }}>Date</th>
+                                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, fontSize: '13px', color: '#6b7280' }}>Type</th>
+                                    <th style={{ padding: '12px', textAlign: 'right', fontWeight: 600, fontSize: '13px', color: '#6b7280' }}>Amount</th>
+                                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, fontSize: '13px', color: '#6b7280' }}>Payment Mode</th>
+                                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, fontSize: '13px', color: '#6b7280' }}>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {transactions.map(transaction => {
+                                    const badge = getTransactionTypeBadge(transaction.transaction_type);
+                                    return (
+                                        <tr key={transaction.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                                            <td style={{ padding: '16px 12px', fontSize: '14px' }}>{transaction.transaction_date}</td>
+                                            <td style={{ padding: '16px 12px' }}>
+                                                <span className={badge.class}>{badge.label}</span>
+                                            </td>
+                                            <td style={{ padding: '16px 12px', fontWeight: 600, textAlign: 'right' }}>₹{parseFloat(transaction.amount).toLocaleString()}</td>
+                                            <td style={{ padding: '16px 12px', fontSize: '13px', color: '#6b7280' }}>{transaction.payment_mode || '-'}</td>
+                                            <td style={{ padding: '16px 12px', fontSize: '13px', color: '#6b7280' }}>{transaction.description || '-'}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                            <tfoot style={{ background: '#f9fafb', borderTop: '2px solid #e5e7eb' }}>
+                                <tr>
+                                    <td colSpan="2" style={{ padding: '16px 12px', fontWeight: 700, color: '#111827' }}>Total Transactions</td>
+                                    <td style={{ padding: '16px 12px', fontWeight: 700, color: '#10b981', textAlign: 'right' }}>₹{totals.total.toLocaleString()}</td>
+                                    <td colSpan="2"></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                )}
+
+                {/* Close Button */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            padding: '10px 24px',
+                            background: '#f3f4f6',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            cursor: 'pointer'
+                        }}
+                    >
+                        Close
+                    </button>
+                </div>
             </div>
         </div>
     );

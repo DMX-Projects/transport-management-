@@ -1,107 +1,199 @@
 from django.db import models
-from apps.masters.models import BaseModel, Branch, Truck, Party
+from django.core.validators import MinValueValidator
+from apps.masters.models import BaseModel, Branch, Truck, Consignor, Party
 
 
 class LorryReceipt(BaseModel):
     """
-    LR (Lorry Receipt) - Represents truck booking
-    Created 24x7, invoice number can be missing/incorrect/edited later
+    LR (Lorry Receipt) - Created when company requests transport
+    This is the primary document given to driver before loading
     """
     
     STATUS_CHOICES = [
-        ('PENDING', 'Pending'),
+        ('DRAFT', 'Draft'),
+        ('PENDING_HPA', 'Pending HPA Creation'),
+        ('ISSUED', 'Issued to Driver'),
+        ('LOADING', 'At Loading Point'),
         ('IN_TRANSIT', 'In Transit'),
+        ('AT_UNLOADING', 'At Unloading Point'),
         ('DELIVERED', 'Delivered'),
         ('CANCELLED', 'Cancelled'),
     ]
     
-    # Auto-generated LR number
-    lr_number = models.CharField(max_length=20, unique=True, editable=False)
+    PAYMENT_TERM_CHOICES = [
+        ('TO_BE_BILLED', 'To Be Billed'),
+        ('TO_PAY', 'To Pay'),
+        ('PAID', 'Paid'),
+    ]
     
-    # Foreign Keys
+    GRADE_CHOICES = [
+        ('53', 'Grade 53'),
+        ('43', 'Grade 43'),
+        ('OPC', 'OPC (Ordinary Portland Cement)'),
+        ('PPC', 'PPC (Portland Pozzolana Cement)'),
+        ('OTHER', 'Other'),
+    ]
+    
+    # LR Number - Auto-generated per branch (e.g., 2369, KAL-2032)
+    lr_number = models.CharField(max_length=20, unique=True, editable=False)
+    lr_date = models.DateField(blank=True, null=True)  # Will be set in save() if not provided
+    sap_number = models.CharField(max_length=50, blank=True, help_text='SAP Number from consignor')
+    lr_submitted_time = models.DateTimeField(blank=True, null=True, help_text='Time when LR was submitted/issued')
+    
+    # Branch - Each branch operates independently
     branch = models.ForeignKey(
         Branch,
         on_delete=models.PROTECT,
-        related_name='lorry_receipts'
+        related_name='lorry_receipts',
+        help_text='Branch creating this LR'
     )
-    truck = models.ForeignKey(
-        Truck,
+    
+    # Consignor - Company sending goods (like Chettinad Cement)
+    consignor = models.ForeignKey(
+        Consignor,
         on_delete=models.PROTECT,
-        related_name='lorry_receipts'
+        related_name='lorry_receipts',
+        help_text='Company sending the goods',
+        null=True,  # Temporarily nullable for migration
+        blank=True
     )
-    party = models.ForeignKey(
+    
+    # Consignee/Party - Destination party receiving goods
+    consignee = models.ForeignKey(
         Party,
         on_delete=models.PROTECT,
         related_name='lorry_receipts',
-        help_text='Customer/Consignee'
+        help_text='Party receiving the goods',
+        null=True,  # Temporarily nullable for migration
+        blank=True
     )
+    delivery_at = models.CharField(max_length=200, blank=True, help_text='Specific delivery location if different')
     
-    # Invoice details (optional, can be added/edited later)
-    invoice_number = models.CharField(max_length=100, blank=True, null=True)
-    invoice_date = models.DateField(blank=True, null=True)
+    # Location Details
+    from_location = models.CharField(max_length=200, blank=True, default='', help_text='Loading location')
+    to_location = models.CharField(max_length=200, blank=True, default='', help_text='Unloading destination')
+    destination = models.CharField(max_length=200, blank=True, help_text='Final destination')
     
-    # Location details
-    from_location = models.CharField(max_length=200)
-    to_location = models.CharField(max_length=200)
-    
-    # Material details
-    material_description = models.TextField()
-    quantity = models.DecimalField(max_digits=10, decimal_places=2)
-    weight_in_tons = models.DecimalField(
+    # Material Details
+    material_description = models.TextField(blank=True, help_text='Description of goods')
+    quantity_mt = models.DecimalField(
         max_digits=10, 
-        decimal_places=3,
-        help_text='Weight in tons'
-    )
-    
-    # Financial
-    freight_amount = models.DecimalField(
-        max_digits=12, 
         decimal_places=2,
-        help_text='Total freight amount'
+        default=0,
+        validators=[MinValueValidator(0)],
+        help_text='Quantity in Metric Tons (M.T.)'
+    )
+    number_of_bags = models.IntegerField(
+        default=0,
+        validators=[MinValueValidator(0)],
+        help_text='Number of bags'
+    )
+    grade = models.CharField(
+        max_length=10,
+        choices=GRADE_CHOICES,
+        blank=True,
+        help_text='Grade of material (53/43/OPC)'
+    )
+    grade_quantity = models.CharField(max_length=50, blank=True, help_text='Grade quantity (e.g., 35MT OPC)')
+    
+    # Loading Details
+    loading_from_department = models.CharField(
+        max_length=100,
+        blank=True,
+        default='DISTRIBUTION DEPARTMENT',
+        help_text='Loading from department'
+    )
+    please_load = models.CharField(max_length=100, blank=True)
+    number_of_loads = models.IntegerField(default=0, validators=[MinValueValidator(0)])
+    grade_type_of_pkg = models.CharField(max_length=100, blank=True, help_text='Grade/Type of Package')
+    
+    # Vehicle and Driver Details
+    truck = models.ForeignKey(
+        Truck,
+        on_delete=models.PROTECT,
+        related_name='lorry_receipts',
+        help_text='Assigned truck',
+        null=True,  # Temporarily nullable for migration
+        blank=True
+    )
+    # Driver details can be overridden per LR (driver might change)
+    driver_name = models.CharField(max_length=200, blank=True, default='', help_text='Driver name for this trip')
+    driver_phone = models.CharField(max_length=15, blank=True, default='', help_text='Driver mobile number')
+    driver_license_no = models.CharField(max_length=50, blank=True, default='', help_text='Driver license number')
+    
+    # Payment Terms (Just indication, no amounts - amounts are in HPA only)
+    payment_term = models.CharField(
+        max_length=20,
+        choices=PAYMENT_TERM_CHOICES,
+        default='TO_BE_BILLED',
+        help_text='Terms of payment'
     )
     
-    # Status tracking
+    # GST Details
+    gst_payable_by = models.CharField(
+        max_length=50,
+        default='SERVICE',
+        help_text='GST payable by (Service/Consignor/Consignee)'
+    )
+    
+    # Status Tracking
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
-        default='PENDING'
+        default='DRAFT'
     )
     
     # Dates
-    lr_date = models.DateField(auto_now_add=True)
-    delivery_date = models.DateField(blank=True, null=True)
+    expected_loading_date = models.DateField(blank=True, null=True)
+    actual_loading_date = models.DateField(blank=True, null=True)
+    expected_delivery_date = models.DateField(blank=True, null=True)
+    actual_delivery_date = models.DateField(blank=True, null=True)
     
-    # Additional info
-    remarks = models.TextField(blank=True, null=True)
-    
-    # Invoice edit tracking (for audit)
-    invoice_edited_at = models.DateTimeField(blank=True, null=True)
-    invoice_edited_by = models.ForeignKey(
-        'accounts.User',
-        on_delete=models.SET_NULL,
-        null=True,
+    # Additional Info
+    remarks = models.TextField(blank=True, help_text='Additional remarks or notes')
+    note = models.TextField(
         blank=True,
-        related_name='invoice_edits'
+        default='नोट : १५ दिन के अंदर नहीं तो गाडी का भाडा नही मिलेगा !',
+        help_text='Note to driver (default Hindi note about 15 days)'
     )
     
     class Meta:
         db_table = 'lorry_receipts'
-        ordering = ['-created_at']
-        verbose_name = 'Lorry Receipt'
-        verbose_name_plural = 'Lorry Receipts'
+        ordering = ['-lr_date', '-lr_number']
+        verbose_name = 'Lorry Receipt (LR)'
+        verbose_name_plural = 'Lorry Receipts (LR)'
         indexes = [
             models.Index(fields=['lr_number']),
-            models.Index(fields=['branch', 'status']),
-            models.Index(fields=['party']),
-            models.Index(fields=['lr_date']),
+            models.Index(fields=['branch', 'lr_date']),
+            models.Index(fields=['consignor', 'status']),
+            models.Index(fields=['consignee', 'status']),
+            models.Index(fields=['truck', 'status']),
+            models.Index(fields=['status']),
         ]
     
     def __str__(self):
-        return f"{self.lr_number} - {self.truck.truck_number}"
+        consignor_name = self.consignor.name if self.consignor else 'N/A'
+        consignee_name = self.consignee.name if self.consignee else 'N/A'
+        return f"LR {self.lr_number} - {consignor_name} to {consignee_name}"
+    
+    @property
+    def has_hpa(self):
+        """Check if this LR has an associated HPA"""
+        return hasattr(self, 'hpa') and self.hpa is not None
+    
+    @property
+    def is_pending_hpa(self):
+        """Check if this LR is pending HPA creation"""
+        return not self.has_hpa and self.status in ['ISSUED', 'LOADING', 'IN_TRANSIT', 'PENDING_HPA']
     
     def save(self, *args, **kwargs):
+        # Set lr_date if not provided
+        if not self.lr_date:
+            from django.utils import timezone
+            self.lr_date = timezone.now().date()
+        
         # Auto-generate LR number if not exists
-        if not self.lr_number:
+        if not self.lr_number and self.branch:
             # Get the last LR for this branch
             last_lr = LorryReceipt.objects.filter(
                 branch=self.branch
@@ -110,13 +202,17 @@ class LorryReceipt(BaseModel):
             if last_lr and last_lr.lr_number:
                 # Extract number and increment
                 try:
-                    last_num = int(last_lr.lr_number.replace('LR', ''))
+                    # Handle formats like "2369" or "KAL-2032" or "LR-2369"
+                    lr_num = last_lr.lr_number.replace(f"{self.branch.lr_prefix}-", "").replace(self.branch.lr_prefix, "")
+                    last_num = int(lr_num) if lr_num.isdigit() else 0
                     new_num = last_num + 1
-                except ValueError:
+                except (ValueError, AttributeError):
                     new_num = 1
             else:
                 new_num = 1
             
-            self.lr_number = f'LR{new_num:04d}'
+            # Format: Use branch prefix if set, otherwise "LR"
+            prefix = self.branch.lr_prefix if self.branch.lr_prefix else "LR"
+            self.lr_number = f"{prefix}-{new_num:04d}" if prefix else f"{new_num:04d}"
         
         super().save(*args, **kwargs)

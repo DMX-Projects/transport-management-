@@ -48,15 +48,15 @@ INSTALLED_APPS = [
     # Custom apps
     'apps.accounts',
     'apps.masters',
+    'apps.dashboard',
     'apps.lr',
     'apps.hpa',
+    'apps.billing',
+    'apps.payments',
+    'apps.reports',
     # These will be added as they are developed:
-    # 'apps.payments',
-    # 'apps.pod',
-    # 'apps.billing',
     # 'apps.receipts',
     # 'apps.accounting',
-    # 'apps.reports',
 ]
 
 MIDDLEWARE = [
@@ -192,15 +192,17 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-# CORS Configuration (for development)
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:5173",
-]
-
+# CORS Configuration (temporary: allow all during development)
+CORS_ALLOW_ALL_ORIGINS = True
+# If you need credentials (cookies/auth) with CORS, keep this:
 CORS_ALLOW_CREDENTIALS = True
+# Optional: trust common dev hosts for CSRF in POST/PUT if needed
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173',
+]
 
 # API Documentation
 SPECTACULAR_SETTINGS = {
@@ -217,3 +219,32 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # Static Files
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
+# PDF Storage Configuration
+PDF_STORAGE_PATH = os.path.join(BASE_DIR, 'media', 'pdfs')
+PDF_TEMP_PATH = os.path.join(BASE_DIR, 'temp', 'pdfs')
+PDF_CACHE_TIMEOUT = 3600  # 1 hour cache for generated PDFs
+PDF_CLEANUP_DAYS = 7  # Delete PDFs older than 7 days
+
+# Celery Configuration
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes hard limit
+CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60  # 25 minutes soft limit
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+
+# Cache Configuration for PDF tracking
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': 'redis://127.0.0.1:6379/1',
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        }
+    }
+}

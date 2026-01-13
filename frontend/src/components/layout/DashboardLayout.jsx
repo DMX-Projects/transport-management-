@@ -17,25 +17,34 @@ import {
 } from '@heroicons/react/24/outline';
 import { useDispatch, useSelector } from 'react-redux';
 import { logout, selectCurrentUser } from '../../features/auth/authSlice';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
     { name: 'LR Management', href: '/lr', icon: DocumentTextIcon },
     { name: 'HPA Management', href: '/hpa', icon: TruckIcon },
     { name: 'Payments', href: '/payments', icon: CreditCardIcon },
-    { name: 'POD', href: '/pod', icon: DocumentCheckIcon },
     { name: 'Billing', href: '/billing', icon: ReceiptPercentIcon },
-    { name: 'Receipts', href: '/receipts', icon: CurrencyDollarIcon },
     { name: 'Reports', href: '/reports', icon: ChartBarIcon },
     { name: 'Masters', href: '/masters', icon: Cog6ToothIcon },
 ];
 
 export default function DashboardLayout({ children }) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 1024);
     const dispatch = useDispatch();
     const navigate = useNavigate();
+    const location = useLocation();
     const user = useSelector(selectCurrentUser);
+
+    // Handle window resize
+    useState(() => {
+        const handleResize = () => {
+            setIsDesktop(window.innerWidth >= 1024);
+        };
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    });
 
     const handleLogout = () => {
         dispatch(logout());
@@ -70,7 +79,7 @@ export default function DashboardLayout({ children }) {
                     transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
                     transition: 'transform 0.3s',
                     zIndex: 50,
-                    display: window.innerWidth >= 1024 ? 'none' : 'block'
+                    display: isDesktop ? 'none' : 'block'
                 }}
             >
                 <Sidebar onClose={() => setSidebarOpen(false)} />
@@ -87,14 +96,14 @@ export default function DashboardLayout({ children }) {
                     background: 'white',
                     borderRight: '1px solid #e5e7eb',
                     zIndex: 30,
-                    display: window.innerWidth >= 1024 ? 'block' : 'none'
+                    display: isDesktop ? 'block' : 'none'
                 }}
             >
                 <Sidebar />
             </div>
 
             {/* Main content */}
-            <div style={{ marginLeft: window.innerWidth >= 1024 ? '280px' : '0' }}>
+            <div style={{ marginLeft: isDesktop ? '280px' : '0', minHeight: '100vh' }}>
                 {/* Enhanced Top navbar */}
                 <div style={{
                     background: 'white',
@@ -124,7 +133,7 @@ export default function DashboardLayout({ children }) {
                                     border: 'none',
                                     background: 'transparent',
                                     cursor: 'pointer',
-                                    display: window.innerWidth >= 1024 ? 'none' : 'block'
+                                    display: isDesktop ? 'none' : 'block'
                                 }}
                             >
                                 <Bars3Icon style={{ width: '24px', height: '24px', color: '#6b7280' }} />
@@ -143,12 +152,12 @@ export default function DashboardLayout({ children }) {
                                 }}>
                                     <TruckIcon style={{ width: '24px', height: '24px', color: 'white' }} />
                                 </div>
-                                <div style={{ display: window.innerWidth >= 640 ? 'block' : 'none' }}>
+                                <div style={{ display: window.innerWidth >= 640 ? 'block' : 'none' }} className="hidden sm:block">
                                     <h1 style={{ fontSize: '16px', fontWeight: 700, color: '#111827', margin: 0, lineHeight: 1.2 }}>
-                                        Transport ERP
+                                        Capital Logistics
                                     </h1>
                                     <p style={{ fontSize: '11px', color: '#6b7280', margin: 0 }}>
-                                        Logistics Management
+                                        Transport Management System
                                     </p>
                                 </div>
                             </div>
@@ -212,10 +221,13 @@ export default function DashboardLayout({ children }) {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', paddingLeft: '12px', borderLeft: '1px solid #e5e7eb' }}>
                                 <div style={{ textAlign: 'right', display: window.innerWidth >= 640 ? 'block' : 'none' }}>
                                     <p style={{ fontSize: '13px', fontWeight: 600, color: '#111827', margin: 0 }}>
-                                        {user?.username || 'User'}
+                                        {user?.first_name && user?.last_name 
+                                            ? `${user.first_name} ${user.last_name}`.trim()
+                                            : user?.username || 'User'}
                                     </p>
                                     <p style={{ fontSize: '11px', color: '#6b7280', margin: 0 }}>
-                                        {user?.role?.replace('_', ' ') || 'Role'}
+                                        {user?.role ? user.role.replace('_', ' ') : 'Role'}
+                                        {user?.branch_name ? ` • ${user.branch_name}` : ''}
                                     </p>
                                 </div>
                                 <div style={{
@@ -232,7 +244,9 @@ export default function DashboardLayout({ children }) {
                                     cursor: 'pointer',
                                     boxShadow: '0 4px 12px rgba(99, 102, 241, 0.25)'
                                 }}>
-                                    {user?.username?.charAt(0).toUpperCase() || 'U'}
+                                    {user?.first_name 
+                                        ? user.first_name.charAt(0).toUpperCase()
+                                        : user?.username?.charAt(0).toUpperCase() || 'U'}
                                 </div>
                             </div>
 
@@ -265,7 +279,7 @@ export default function DashboardLayout({ children }) {
                         <HomeIcon style={{ width: '14px', height: '14px', color: '#6b7280' }} />
                         <span style={{ color: '#d1d5db' }}>/</span>
                         <span style={{ color: '#111827', fontWeight: 500 }}>
-                            {window.location.pathname.split('/').filter(Boolean).map(segment =>
+                            {location.pathname.split('/').filter(Boolean).map(segment =>
                                 segment.charAt(0).toUpperCase() + segment.slice(1).replace('-', ' ')
                             ).join(' / ') || 'Dashboard'}
                         </span>
@@ -285,6 +299,7 @@ export default function DashboardLayout({ children }) {
 
 function Sidebar({ onClose }) {
     const navigate = useNavigate();
+    const location = useLocation();
 
     const handleNavigation = (href) => {
         navigate(href);
@@ -303,7 +318,7 @@ function Sidebar({ onClose }) {
                 borderBottom: '1px solid #e5e7eb'
             }}>
                 <h1 style={{ fontSize: '20px', fontWeight: 700 }}>
-                    <span className="gradient-text">Transport ERP</span>
+                    <span className="gradient-text">Capital Logistics</span>
                 </h1>
                 {onClose && (
                     <button
@@ -325,7 +340,8 @@ function Sidebar({ onClose }) {
             <nav style={{ flex: 1, padding: '24px 16px', overflowY: 'auto' }}>
                 {navigation.map((item) => {
                     const Icon = item.icon;
-                    const isActive = window.location.pathname === item.href;
+                    const isActive = location.pathname === item.href || 
+                                    (item.href === '/dashboard' && location.pathname === '/');
 
                     return (
                         <button
@@ -375,7 +391,7 @@ function Sidebar({ onClose }) {
                 textAlign: 'center'
             }}>
                 <p style={{ fontSize: '12px', color: '#9ca3af' }}>
-                    © 2026 Transport ERP
+                    © 2026 Capital Logistics
                 </p>
             </div>
         </div>
