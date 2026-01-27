@@ -15,6 +15,11 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: apiTarget,
           changeOrigin: true,
+        },
+        // Allow dev server to serve Django-uploaded media (e.g. POD proof images)
+        '/media': {
+          target: apiTarget,
+          changeOrigin: true,
         }
       }
     }

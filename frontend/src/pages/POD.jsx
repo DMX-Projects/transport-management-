@@ -17,9 +17,20 @@ export default function POD() {
     const [updatePOD, { isLoading: isUpdating }] = useUpdatePODMutation();
     const { canEdit } = useAuth();
 
+    const getOriginFromApiBaseUrl = () => {
+        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+        if (!apiBaseUrl) return null;
+        try {
+            return new URL(apiBaseUrl).origin;
+        } catch {
+            return null; // relative URL like "/api/v1"
+        }
+    };
+
     const backendOrigin =
         import.meta.env.VITE_BACKEND_ORIGIN ||
-        `${window.location.protocol}//${window.location.hostname}:8000`;
+        getOriginFromApiBaseUrl() ||
+        window.location.origin;
 
     const getMediaUrl = (maybeUrl) => {
         if (!maybeUrl) return null;
