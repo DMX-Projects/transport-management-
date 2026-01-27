@@ -243,13 +243,23 @@ class BillItem(BaseModel):
         help_text='Parent bill'
     )
     
-    # Link to LR
+    # Link to LRItem (new - preferred)
+    lr_item = models.ForeignKey(
+        'lr.LRItem',
+        on_delete=models.PROTECT,
+        related_name='bill_items',
+        help_text='Linked LR Item',
+        null=True,  # Temporarily nullable for migration
+        blank=True
+    )
+    
+    # Link to LR (deprecated - kept for backward compatibility)
     lr = models.ForeignKey(
         LorryReceipt,
         on_delete=models.PROTECT,
         related_name='bill_items',
-        help_text='Linked Lorry Receipt',
-        null=True,  # Temporarily nullable for migration
+        help_text='Deprecated: Use lr_item instead. Linked Lorry Receipt',
+        null=True,  # Make nullable for backward compatibility
         blank=True
     )
     
@@ -287,22 +297,29 @@ class BillItem(BaseModel):
         verbose_name_plural = 'Bill Items'
         indexes = [
             models.Index(fields=['bill', 'id']),
-            models.Index(fields=['lr']),
+            models.Index(fields=['lr_item']),
+            models.Index(fields=['lr']),  # Keep for backward compatibility
         ]
-        unique_together = [['bill', 'lr']]  # One LR can appear once per bill
+        unique_together = [['bill', 'lr_item']]  # One LRItem can appear once per bill
     
     def __str__(self):
         return f"{self.bill.bill_number} - {self.destination} ({self.quantity_mt} MT)"
     
     def save(self, *args, **kwargs):
-        # Auto-populate from LR if not set
-        if self.lr:
+        # Auto-populate from LRItem if not set (preferred)
+        if self.lr_item:
+            if not self.destination:
+                self.destination = self.lr_item.to_location
+            if not self.quantity_mt:
+                self.quantity_mt = self.lr_item.quantity_mt
+        # Fallback to LR for backward compatibility
+        elif self.lr:
             if not self.destination:
                 self.destination = self.lr.to_location
             if not self.quantity_mt:
                 self.quantity_mt = self.lr.quantity_mt
-            # Note: LR doesn't have freight_rate_per_ton - rate must be provided when creating Bill
-            # freight_rate is set from BillItem or must be provided
+        # Note: LR doesn't have freight_rate_per_ton - rate must be provided when creating Bill
+        # freight_rate is set from BillItem or must be provided
         
         # Calculate total amount using Decimal-safe arithmetic
         if self.quantity_mt is not None and self.freight_rate is not None:

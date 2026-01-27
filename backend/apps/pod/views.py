@@ -39,14 +39,39 @@ class ProofOfDeliveryViewSet(viewsets.ModelViewSet):
         return queryset.none()
     
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user, updated_by=self.request.user)
+        from rest_framework.exceptions import PermissionDenied
+        user = self.request.user
+        if not user.can_access_all_branches:
+            if not user.branch:
+                raise PermissionDenied("Branch assignment is required to create POD records.")
+            requested_branch = serializer.validated_data.get('branch')
+            if requested_branch and requested_branch != user.branch:
+                raise PermissionDenied("You can only create PODs for your own branch.")
+        pod = serializer.save(
+            created_by=user,
+            updated_by=user,
+            branch=serializer.validated_data.get('branch') or (user.branch if not user.can_access_all_branches else None)
+        )
+        lr = pod.lr or (pod.hpa.lr if pod.hpa and pod.hpa.lr else None)
+        if lr:
+            lr.status = 'DELIVERED'
+            lr.actual_delivery_date = pod.delivery_date or timezone.now().date()
+            lr.updated_by = user
+            lr.save(update_fields=['status', 'actual_delivery_date', 'updated_by', 'updated_at'])
     
     def perform_update(self, serializer):
-        # Only SUPER_ADMIN can update
-        if not self.request.user.can_edit:
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("Only SUPER_ADMIN can update records.")
-        serializer.save(updated_by=self.request.user)
+        from rest_framework.exceptions import PermissionDenied
+        user = self.request.user
+        pod = self.get_object()
+        if not user.can_access_all_branches:
+            if not user.branch:
+                raise PermissionDenied("Branch assignment is required to update POD records.")
+            if pod.branch_id != user.branch_id:
+                raise PermissionDenied("You can only update PODs for your own branch.")
+            requested_branch = serializer.validated_data.get('branch')
+            if requested_branch and requested_branch != user.branch:
+                raise PermissionDenied("You can only update PODs for your own branch.")
+        serializer.save(updated_by=user)
     
     def destroy(self, request, *args, **kwargs):
         # Delete functionality is disabled

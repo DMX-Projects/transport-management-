@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useGetHPAsQuery, useCreateHPAMutation, useUpdateHPAMutation, useMarkAsPaidMutation, useGetHPATransactionsQuery } from '../features/hpa/hpaApi';
+import { useCreatePODMutation } from '../features/pod/podApi';
 import { useGetLRsWithoutHPAQuery } from '../features/lr/lrApi';
 import { useGetBranchesQuery, useGetTrucksQuery } from '../features/masters/mastersApi';
 import { useAuth } from '../hooks/useAuth';
-import { XMarkIcon, PlusIcon, MagnifyingGlassIcon, BanknotesIcon, PencilIcon, ArrowDownTrayIcon, EyeIcon, ShareIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, PlusIcon, MagnifyingGlassIcon, BanknotesIcon, PencilIcon, ArrowDownTrayIcon, EyeIcon, ShareIcon, DocumentArrowUpIcon } from '@heroicons/react/24/outline';
 import SearchableSelect from '../components/SearchableSelect';
 import { useSearchableSelect } from '../hooks/useSearchableSelect';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -12,7 +13,9 @@ export default function HPAManagement() {
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [showViewModal, setShowViewModal] = useState(false);
+    const [showAcknowledgeModal, setShowAcknowledgeModal] = useState(false);
     const [selectedHPA, setSelectedHPA] = useState(null);
+    const [acknowledgeHPA, setAcknowledgeHPA] = useState(null);
     const [filters, setFilters] = useState({});
     const [searchTerm, setSearchTerm] = useState('');
     const [page, setPage] = useState(1);
@@ -23,6 +26,7 @@ export default function HPAManagement() {
     const { data: hpasData, isLoading: isLoadingHPAs } = useGetHPAsQuery({ ...filters, search: debouncedSearch, page, page_size: pageSize });
     const [createHPA, { isLoading: isCreating }] = useCreateHPAMutation();
     const [updateHPA, { isLoading: isUpdating }] = useUpdateHPAMutation();
+    const [createPOD, { isLoading: isAcknowledging }] = useCreatePODMutation();
     const { canEdit } = useAuth();
 
     // Extract arrays from API response
@@ -59,6 +63,29 @@ export default function HPAManagement() {
         } catch (error) {
             console.error('Error updating HPA:', error);
             let errorMessage = 'Error updating HPA:\n\n';
+            if (error.data && typeof error.data === 'object' && !Array.isArray(error.data)) {
+                Object.entries(error.data).forEach(([field, messages]) => {
+                    const msgArray = Array.isArray(messages) ? messages : [messages];
+                    errorMessage += `• ${field}: ${msgArray.join(', ')}\n`;
+                });
+            } else if (typeof error.data === 'string') {
+                errorMessage += error.data;
+            } else {
+                errorMessage += error.message || 'Unknown error occurred';
+            }
+            alert(errorMessage);
+        }
+    };
+
+    const handleAcknowledgeDelivery = async (formData) => {
+        try {
+            await createPOD(formData).unwrap();
+            setShowAcknowledgeModal(false);
+            setAcknowledgeHPA(null);
+            alert('✅ Delivery acknowledged successfully!');
+        } catch (error) {
+            console.error('Error acknowledging delivery:', error);
+            let errorMessage = 'Error acknowledging delivery:\n\n';
             if (error.data && typeof error.data === 'object' && !Array.isArray(error.data)) {
                 Object.entries(error.data).forEach(([field, messages]) => {
                     const msgArray = Array.isArray(messages) ? messages : [messages];
@@ -287,6 +314,16 @@ export default function HPAManagement() {
                                                 >
                                                     <ShareIcon style={{ width: '18px', height: '18px' }} />
                                                 </button>
+                                                <button
+                                                    onClick={() => {
+                                                        setAcknowledgeHPA(hpa);
+                                                        setShowAcknowledgeModal(true);
+                                                    }}
+                                                    style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#0ea5e9' }}
+                                                    title="Acknowledge Delivery"
+                                                >
+                                                    <DocumentArrowUpIcon style={{ width: '18px', height: '18px' }} />
+                                                </button>
                                                 {canEdit && (
                                                     <button
                                                         onClick={() => {
@@ -341,6 +378,19 @@ export default function HPAManagement() {
                     isLoading={isUpdating}
                 />
             )}
+
+            {/* Acknowledge Delivery Modal */}
+            {showAcknowledgeModal && acknowledgeHPA && (
+                <AcknowledgeDeliveryModal
+                    hpa={acknowledgeHPA}
+                    onClose={() => {
+                        setShowAcknowledgeModal(false);
+                        setAcknowledgeHPA(null);
+                    }}
+                    onSubmit={handleAcknowledgeDelivery}
+                    isLoading={isAcknowledging}
+                />
+            )}
         </div>
     );
 }
@@ -362,7 +412,8 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
     // Initialize formData state BEFORE using it in other hooks
     const [formData, setFormData] = useState({
         branch: isSuperAdmin ? '' : String(user?.branch?.id || ''), // SuperAdmin must provide, branch users get auto-assignment
-        lr: '',
+        lr: '',  // Primary LR (for backward compatibility)
+        lrs: [],  // Multiple LRs (array of LR IDs)
         truck: '',  // Added truck field - REQUIRED and EDITABLE
         invoice_number: '',
         hpa_date: new Date().toISOString().split('T')[0],
@@ -387,6 +438,7 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
     });
 
     const [selectedLR, setSelectedLR] = useState(null);
+    const [selectedLRs, setSelectedLRs] = useState([]);  // Multiple selected LRs
     const [calculatedValues, setCalculatedValues] = useState({
         totalDeductions: 0,
         balanceRs: 0,
@@ -421,34 +473,92 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
 
     // Note: Branch is auto-assigned by backend, no need to manage selectedBranchId
 
-    // Get selected LR details and auto-populate
-    useEffect(() => {
-        if (formData.lr) {
-            const lr = lrs.find(l => l.id === parseInt(formData.lr));
-            setSelectedLR(lr);
-            if (lr) {
-                // Auto-populate from LR with all available data
-                setFormData(prev => ({
-                    ...prev,
-                    // Auto-populate branch from LR
-                    branch: lr.branch || prev.branch,
-                    truck: lr.truck || prev.truck,  // Auto-populate truck ID from LR
-                    from_location: lr.from_location || prev.from_location,
-                    to_location: lr.to_location || prev.to_location,
-                    driver_name: lr.driver_name || prev.driver_name,
-                    driver_mob: lr.driver_phone || prev.driver_mob,  // LR has driver_phone, HPA expects driver_mob
-                    lr_reference: lr.lr_number || prev.lr_reference,
-                    tons: lr.quantity_mt || prev.tons,  // LR has quantity_mt, HPA expects tons
-                    invoice_number: lr.sap_number || prev.invoice_number,  // Auto-populate SAP number as invoice
-                    // Note: LR doesn't have rate_per_tonne - must be entered when creating HPA
-                    rate_per_tonne: prev.rate_per_tonne,
-                }));
-                // Update selectedBranchId so subsequent LRs in that branch can be filtered
-                if (lr.branch) {
-                    setSelectedBranchId(lr.branch);
+    // Handle LR selection (single or multiple)
+    const handleLRSelection = (lrId, isChecked) => {
+        const lrIdNum = parseInt(lrId);
+        if (isChecked) {
+            // Add to selection
+            if (!selectedLRs.find(lr => lr.id === lrIdNum)) {
+                const lr = lrs.find(l => l.id === lrIdNum);
+                if (lr) {
+                    const newSelected = [...selectedLRs, lr];
+                    setSelectedLRs(newSelected);
+                    updateFormFromLRs(newSelected);
                 }
             }
         } else {
+            // Remove from selection
+            const newSelected = selectedLRs.filter(lr => lr.id !== lrIdNum);
+            setSelectedLRs(newSelected);
+            if (newSelected.length > 0) {
+                updateFormFromLRs(newSelected);
+            } else {
+                // Reset form if no LRs selected
+                setFormData(prev => ({
+                    ...prev,
+                    lr: '',
+                    lrs: [],
+                    truck: '',
+                    from_location: '',
+                    to_location: '',
+                    driver_name: '',
+                    driver_mob: '',
+                    lr_reference: '',
+                    tons: '',
+                }));
+            }
+        }
+    };
+
+    // Update form data from selected LRs
+    const updateFormFromLRs = (selectedLRsList) => {
+        if (selectedLRsList.length === 0) return;
+
+        const firstLR = selectedLRsList[0];
+        
+        // Calculate total tons from all selected LRs
+        const totalTons = selectedLRsList.reduce((sum, lr) => {
+            return sum + parseFloat(lr.total_quantity_mt || lr.quantity_mt || 0);
+        }, 0);
+
+        // Build LR reference string
+        const lrNumbers = selectedLRsList.map(lr => lr.lr_number);
+        const lrReference = selectedLRsList.length === 1 
+            ? lrNumbers[0]
+            : `${lrNumbers[0]} (+${selectedLRsList.length - 1} more)`;
+
+        setFormData(prev => ({
+            ...prev,
+            lr: String(firstLR.id),  // Primary LR for backward compatibility
+            lrs: selectedLRsList.map(lr => lr.id),  // Array of LR IDs
+            branch: firstLR.branch || prev.branch,
+            truck: firstLR.truck || prev.truck,
+            from_location: firstLR.from_location || firstLR.primary_from_location || prev.from_location,
+            to_location: firstLR.to_location || firstLR.primary_to_location || prev.to_location,
+            driver_name: firstLR.driver_name || prev.driver_name,
+            driver_mob: firstLR.driver_phone || prev.driver_mob,
+            lr_reference: lrReference,
+            tons: totalTons,
+            invoice_number: firstLR.sap_number || prev.invoice_number,
+            rate_per_tonne: prev.rate_per_tonne,  // Keep user's rate
+        }));
+
+        // Update selectedBranchId
+        if (firstLR.branch) {
+            setSelectedBranchId(firstLR.branch);
+        }
+    };
+
+    // Get selected LR details and auto-populate (backward compatibility for single LR)
+    useEffect(() => {
+        if (formData.lr && selectedLRs.length === 0) {
+            const lr = lrs.find(l => l.id === parseInt(formData.lr));
+            setSelectedLR(lr);
+            if (lr) {
+                setSelectedLRs([lr]);
+                updateFormFromLRs([lr]);
+            }
+        } else if (!formData.lr && selectedLRs.length === 0) {
             setSelectedLR(null);
         }
     }, [formData.lr, lrs]);
@@ -460,7 +570,7 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
             setFormData(prev => ({ ...prev, lorry_hire_rs: lorryHire.toFixed(2) }));
         // Note: LR doesn't have freight_amount - lorry_hire_rs is calculated from tons × rate
         }
-    }, [formData.tons, formData.rate_per_tonne, selectedLR]);
+    }, [formData.tons, formData.rate_per_tonne, selectedLRs]);
 
     // Calculate totals whenever deductions or lorry hire change
     useEffect(() => {
@@ -501,8 +611,20 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
     const handleSubmit = (e) => {
         e.preventDefault();
 
+        // Validate at least one LR is selected
+        if (selectedLRs.length === 0) {
+            alert('Please select at least one LR');
+            return;
+        }
+
         // Clean up the form data
         const cleanedData = { ...formData };
+        
+        // Use selectedLRs array instead of single lr
+        if (selectedLRs.length > 0) {
+            cleanedData.lrs = selectedLRs.map(lr => lr.id);
+            cleanedData.lr = selectedLRs[0].id;  // Primary LR for backward compatibility
+        }
         
         // Branch managers: Remove branch field (backend auto-assigns from user.branch)
         // SuperAdmin: Keep branch field (must be provided)
@@ -601,10 +723,10 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
                             <input type="date" name="hpa_date" className="input" required onChange={handleChange} value={formData.hpa_date} />
                         </div>
 
-                        {/* LR Selection - CRITICAL */}
+                        {/* LR Selection - CRITICAL - Now supports multiple LRs */}
                         <div style={{ gridColumn: 'span 2' }}>
                             <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Select LR * (HPA number will match this LR number)
+                                Select LR(s) * {selectedLRs.length > 0 && `(${selectedLRs.length} selected)`}
                             </label>
                             {isSuperAdmin && !selectedBranchId ? (
                                 <div style={{ padding: '12px', background: '#fef3c7', borderRadius: '8px', border: '1px solid #fbbf24' }}>
@@ -623,26 +745,62 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
                                     </p>
                                 </div>
                             ) : (
-                                <>
-                                    <select name="lr" className="input" required onChange={handleChange} value={formData.lr}>
-                                        <option value="">Select Lorry Receipt (only LRs without HPA)</option>
-                                        {lrs.map(lr => (
-                                            <option key={lr.id} value={lr.id}>
-                                                {lr.lr_number} - {lr.consignor_name} → {lr.consignee_name} - {lr.truck_number} - {lr.quantity_mt || 0} MT
-                                            </option>
-                                        ))}
-                                    </select>
-                                    {selectedLR && (
-                                        <p style={{ fontSize: '12px', color: '#10b981', marginTop: '4px' }}>
-                                            ✓ HPA Number will be: <strong>{selectedLR.lr_number}</strong>
-                                        </p>
+                                <div style={{
+                                    border: '1px solid #e5e7eb',
+                                    borderRadius: '8px',
+                                    maxHeight: '300px',
+                                    overflowY: 'auto',
+                                    padding: '12px'
+                                }}>
+                                    {lrs.map(lr => {
+                                        const isSelected = selectedLRs.some(sel => sel.id === lr.id);
+                                        return (
+                                            <label
+                                                key={lr.id}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    padding: '12px',
+                                                    marginBottom: '8px',
+                                                    background: isSelected ? '#f0f9ff' : 'white',
+                                                    border: isSelected ? '2px solid #3b82f6' : '1px solid #e5e7eb',
+                                                    borderRadius: '8px',
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isSelected}
+                                                    onChange={(e) => handleLRSelection(lr.id, e.target.checked)}
+                                                    style={{ marginRight: '12px', width: '18px', height: '18px', cursor: 'pointer' }}
+                                                />
+                                                <div style={{ flex: 1 }}>
+                                                    <div style={{ fontWeight: 600, fontSize: '14px', color: '#111827' }}>
+                                                        {lr.lr_number}
+                                                    </div>
+                                                    <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
+                                                        {lr.consignor_name || '-'} → {lr.consignee_name || '-'} | {lr.truck_number || '-'} | {parseFloat(lr.total_quantity_mt || lr.quantity_mt || 0).toFixed(2)} MT
+                                                    </div>
+                                                </div>
+                                            </label>
+                                        );
+                                    })}
+                                    {selectedLRs.length > 0 && (
+                                        <div style={{ marginTop: '12px', padding: '12px', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #86efac' }}>
+                                            <p style={{ fontSize: '12px', color: '#166534', margin: 0 }}>
+                                                ✓ {selectedLRs.length} LR{selectedLRs.length !== 1 ? 's' : ''} selected. HPA Number will be: <strong>{selectedLRs[0].lr_number}</strong>
+                                            </p>
+                                            <p style={{ fontSize: '12px', color: '#166534', marginTop: '4px', marginBottom: 0 }}>
+                                                Total Tons: <strong>{selectedLRs.reduce((sum, lr) => sum + parseFloat(lr.total_quantity_mt || lr.quantity_mt || 0), 0).toFixed(2)} MT</strong>
+                                            </p>
+                                        </div>
                                     )}
                                     {lrs.length > 0 && (
-                                        <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
+                                        <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '8px', marginBottom: 0 }}>
                                             {lrs.length} LR{lrs.length !== 1 ? 's' : ''} available without HPA
                                         </p>
                                     )}
-                                </>
+                                </div>
                             )}
                         </div>
 
@@ -670,9 +828,9 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
                                 getOptionLabel={(opt) => `${opt.truck_number}${opt.owner_name ? ` - ${opt.owner_name}` : ''}${opt.driver_name ? ` - Driver: ${opt.driver_name}` : ''}`}
                                 getOptionValue={(opt) => opt.id}
                             />
-                            {selectedLR && selectedLR.truck && (
+                            {selectedLRs.length > 0 && selectedLRs[0].truck && (
                                 <p style={{ fontSize: '12px', color: '#10b981', marginTop: '4px' }}>
-                                    ✓ Pre-filled from LR: <strong>{selectedLR.truck_number}</strong> - You can change it if needed
+                                    ✓ Pre-filled from LR: <strong>{selectedLRs[0].truck_number}</strong> - You can change it if needed
                                 </p>
                             )}
                         </div>
@@ -686,21 +844,23 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
                         </div>
 
                         {/* Auto-populated info box */}
-                        {selectedLR && (
+                        {selectedLRs.length > 0 && (
                             <div style={{ gridColumn: 'span 2', padding: '16px', background: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd' }}>
-                                <h4 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px', color: '#0369a1' }}>Auto-populated from LR:</h4>
+                                <h4 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px', color: '#0369a1' }}>
+                                    Auto-populated from {selectedLRs.length === 1 ? 'LR' : `First LR (${selectedLRs.length} LRs selected)`}:
+                                </h4>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
                                     <div>
                                         <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>From</p>
-                                        <p style={{ fontSize: '14px', fontWeight: 600 }}>{selectedLR.from_location || '-'}</p>
+                                        <p style={{ fontSize: '14px', fontWeight: 600 }}>{selectedLRs[0].from_location || selectedLRs[0].primary_from_location || '-'}</p>
                                     </div>
                                     <div>
                                         <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>To</p>
-                                        <p style={{ fontSize: '14px', fontWeight: 600 }}>{selectedLR.to_location || '-'}</p>
+                                        <p style={{ fontSize: '14px', fontWeight: 600 }}>{selectedLRs[0].to_location || selectedLRs[0].primary_to_location || '-'}</p>
                                     </div>
                                     <div>
                                         <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Truck</p>
-                                        <p style={{ fontSize: '14px', fontWeight: 600 }}>{selectedLR.truck_number || '-'}</p>
+                                        <p style={{ fontSize: '14px', fontWeight: 600 }}>{selectedLRs[0].truck_number || '-'}</p>
                                     </div>
                                 </div>
                             </div>
@@ -1359,6 +1519,215 @@ function EditHPAModal({ hpa, onClose, onSubmit, isLoading }) {
                         </button>
                         <button type="submit" className="btn btn-primary" disabled={isLoading}>
                             {isLoading ? 'Updating...' : 'Update HPA'}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+}
+
+function AcknowledgeDeliveryModal({ hpa, onClose, onSubmit, isLoading }) {
+    const [formData, setFormData] = useState({
+        branch: hpa.branch || '',
+        lr: hpa.lr || '',
+        hpa: hpa.id,
+        pod_date: new Date().toISOString().split('T')[0],
+        delivery_date: new Date().toISOString().split('T')[0],
+        delivery_time: '',
+        delivered_to: '',
+        delivered_to_phone: '',
+        delivery_signature: '',
+        quantity_received_mt: hpa.tons || '',
+        number_of_bags_received: '',
+        goods_condition: 'GOOD',
+        status: 'RECEIVED',
+        delivery_remarks: '',
+        consignee_remarks: '',
+        remarks: '',
+        pod_document: null,
+    });
+
+    const handleChange = (e) => {
+        if (e.target.type === 'file') {
+            setFormData({ ...formData, pod_document: e.target.files[0] });
+        } else {
+            setFormData({ ...formData, [e.target.name]: e.target.value });
+        }
+    };
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        const submitData = new FormData();
+        Object.entries(formData).forEach(([key, value]) => {
+            if (value === null || value === '' || typeof value === 'undefined') {
+                return;
+            }
+            if (key === 'pod_document') {
+                if (value) submitData.append(key, value);
+                return;
+            }
+            submitData.append(key, value);
+        });
+        onSubmit(submitData);
+    };
+
+    return (
+        <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px'
+        }} onClick={onClose}>
+            <div
+                style={{
+                    background: 'white',
+                    borderRadius: '16px',
+                    maxWidth: '820px',
+                    width: '100%',
+                    maxHeight: '90vh',
+                    overflow: 'auto',
+                    padding: '32px'
+                }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                    <h2 style={{ fontSize: '24px', fontWeight: 700 }}>Acknowledge Delivery - {hpa.hpa_number}</h2>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px' }}>
+                        <XMarkIcon style={{ width: '24px', height: '24px', color: '#6b7280' }} />
+                    </button>
+                </div>
+
+                <div style={{
+                    padding: '12px 16px',
+                    background: '#f0f9ff',
+                    border: '1px solid #bae6fd',
+                    borderRadius: '8px',
+                    marginBottom: '20px'
+                }}>
+                    <p style={{ margin: 0, fontSize: '13px', color: '#0369a1' }}>
+                        LR: <strong>{hpa.lr_number || 'N/A'}</strong> • Truck: <strong>{hpa.truck_number || 'N/A'}</strong>
+                    </p>
+                    <p style={{ margin: '6px 0 0', fontSize: '12px', color: '#0c4a6e' }}>
+                        This will mark the linked LR as <strong>DELIVERED</strong>.
+                    </p>
+                </div>
+
+                <form onSubmit={handleSubmit}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Delivery Date *
+                            </label>
+                            <input type="date" name="delivery_date" className="input" required onChange={handleChange} value={formData.delivery_date} />
+                        </div>
+
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Delivery Time
+                            </label>
+                            <input type="time" name="delivery_time" className="input" onChange={handleChange} value={formData.delivery_time} />
+                        </div>
+
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Delivered To (Name) *
+                            </label>
+                            <input type="text" name="delivered_to" className="input" required onChange={handleChange} value={formData.delivered_to} placeholder="Name of receiver" />
+                        </div>
+
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Receiver Phone
+                            </label>
+                            <input type="tel" name="delivered_to_phone" className="input" onChange={handleChange} value={formData.delivered_to_phone} placeholder="Optional" />
+                        </div>
+
+                        <div style={{ gridColumn: 'span 2' }}>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Delivery Signature
+                            </label>
+                            <input type="text" name="delivery_signature" className="input" onChange={handleChange} value={formData.delivery_signature} placeholder="Signature of receiver" />
+                        </div>
+
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Quantity Received (MT)
+                            </label>
+                            <input type="number" step="0.01" name="quantity_received_mt" className="input" onChange={handleChange} value={formData.quantity_received_mt} placeholder="Optional" />
+                        </div>
+
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Number of Bags Received
+                            </label>
+                            <input type="number" name="number_of_bags_received" className="input" onChange={handleChange} value={formData.number_of_bags_received} placeholder="Optional" />
+                        </div>
+
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Goods Condition
+                            </label>
+                            <select name="goods_condition" className="input" onChange={handleChange} value={formData.goods_condition}>
+                                <option value="GOOD">Good Condition</option>
+                                <option value="DAMAGED">Damaged</option>
+                                <option value="SHORT">Short Delivery</option>
+                                <option value="EXCESS">Excess Delivery</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Status
+                            </label>
+                            <select name="status" className="input" onChange={handleChange} value={formData.status}>
+                                <option value="RECEIVED">Received</option>
+                                <option value="VERIFIED">Verified</option>
+                                <option value="DISPUTED">Disputed</option>
+                                <option value="ACCEPTED">Accepted</option>
+                            </select>
+                        </div>
+
+                        <div style={{ gridColumn: 'span 2' }}>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                POD Document (Photo/Scan)
+                            </label>
+                            <input type="file" name="pod_document" className="input" accept="image/*,.pdf" onChange={handleChange} />
+                            <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>Upload delivery acknowledgment (optional)</p>
+                        </div>
+
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Delivery Remarks
+                            </label>
+                            <textarea name="delivery_remarks" className="input" onChange={handleChange} value={formData.delivery_remarks} rows="2" placeholder="Delivery remarks..." />
+                        </div>
+
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Consignee Remarks
+                            </label>
+                            <textarea name="consignee_remarks" className="input" onChange={handleChange} value={formData.consignee_remarks} rows="2" placeholder="Remarks from consignee..." />
+                        </div>
+
+                        <div style={{ gridColumn: 'span 2' }}>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                Internal Remarks
+                            </label>
+                            <textarea name="remarks" className="input" onChange={handleChange} value={formData.remarks} rows="2" placeholder="Internal remarks..." />
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '12px', marginTop: '24px', justifyContent: 'flex-end' }}>
+                        <button type="button" className="btn btn-secondary" onClick={onClose}>
+                            Cancel
+                        </button>
+                        <button type="submit" className="btn btn-primary" disabled={isLoading || !formData.lr || !formData.branch}>
+                            {isLoading ? 'Submitting...' : 'Acknowledge Delivery'}
                         </button>
                     </div>
                 </form>

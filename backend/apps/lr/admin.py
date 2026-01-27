@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import LorryReceipt
+from .models import LorryReceipt, LRItem
 
 
 @admin.register(LorryReceipt)
@@ -40,6 +40,43 @@ class LorryReceiptAdmin(admin.ModelAdmin):
         }),
         ('Notes', {
             'fields': ('note', 'remarks')
+        }),
+        ('Audit Trail', {
+            'fields': ('created_at', 'updated_at', 'created_by', 'updated_by'),
+            'classes': ('collapse',)
+        }),
+    )
+
+
+@admin.register(LRItem)
+class LRItemAdmin(admin.ModelAdmin):
+    list_display = ['id', 'lr', 'sequence_number', 'consignor', 'consignee', 'from_location', 'to_location', 'quantity_mt', 'number_of_bags']
+    list_filter = ['lr', 'consignor', 'consignee', 'payment_term']
+    search_fields = ['lr__lr_number', 'consignor__name', 'consignee__name', 'sap_number']
+    readonly_fields = ['created_at', 'updated_at', 'created_by', 'updated_by']
+    ordering = ['lr', 'sequence_number']
+    
+    fieldsets = (
+        ('LR Information', {
+            'fields': ('lr', 'sequence_number')
+        }),
+        ('Consignor & Consignee', {
+            'fields': ('consignor', 'consignee', 'delivery_at')
+        }),
+        ('Location Details', {
+            'fields': ('from_location', 'to_location', 'destination')
+        }),
+        ('Material Details', {
+            'fields': (
+                'material_description', 'quantity_mt', 'number_of_bags',
+                'grade', 'grade_quantity', 'grade_type_of_pkg'
+            )
+        }),
+        ('Loading Details', {
+            'fields': ('loading_from_department', 'please_load', 'number_of_loads')
+        }),
+        ('Order Details', {
+            'fields': ('sap_number', 'payment_term', 'gst_payable_by')
         }),
         ('Audit Trail', {
             'fields': ('created_at', 'updated_at', 'created_by', 'updated_by'),

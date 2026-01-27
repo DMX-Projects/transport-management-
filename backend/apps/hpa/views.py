@@ -29,7 +29,7 @@ class HirePaymentAdviceViewSet(viewsets.ModelViewSet):
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['branch', 'truck', 'lr', 'payment_status']
-    search_fields = ['hpa_number', 'invoice_number', 'lr__lr_number', 'truck__truck_number', 'driver_name']
+    search_fields = ['hpa_number', 'invoice_number', 'lr__lr_number', 'additional_lrs__lr_number', 'truck__truck_number', 'driver_name']
     ordering_fields = ['hpa_date', 'created_at', 'balance_rs', 'lorry_hire_rs']
     ordering = ['-created_at']
     

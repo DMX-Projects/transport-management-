@@ -214,6 +214,7 @@ class ReportsViewSet(viewsets.ViewSet):
                 'hpa_number': hpa.hpa_number,
                 'hpa_date': hpa.hpa_date,
                 'lr_number': (hpa.lr.lr_number if hpa.lr else hpa.hpa_number),
+                'lr_count': hpa.lrs.count() if hasattr(hpa, 'lrs') else (1 if hpa.lr else 0),
                 'truck_number': (hpa.truck.truck_number if hpa.truck else 'N/A'),
                 'driver_name': hpa.driver_name,
                 'lorry_hire': hpa.lorry_hire_rs,

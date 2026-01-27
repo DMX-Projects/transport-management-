@@ -209,7 +209,7 @@ def generate_hpa_pdf(hpa):
     
     # LR Reference and Tons
     lr_tons_data = [
-        ['LR No.:', hpa.lr_reference or (hpa.lr.lr_number if hpa.lr else '')],
+        ['LR No.:', hpa.lr_reference or (hpa.lr.lr_number if hpa.lr else hpa.hpa_number)],
         ['Tons:', str(hpa.tons) if hpa.tons else '35']
     ]
     lr_tons_table = Table(lr_tons_data, colWidths=[40*mm, 140*mm])

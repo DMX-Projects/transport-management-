@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.utils import timezone
+from decimal import Decimal
 from .models import HirePaymentAdvice
 from .transactions import HPATransaction
 from apps.lr.models import LorryReceipt
@@ -67,7 +68,9 @@ class HirePaymentAdviceSerializer(serializers.ModelSerializer):
     """Serializer for displaying HPAs"""
     
     # Display fields from related models
-    lr_number = serializers.CharField(source='lr.lr_number', read_only=True)
+    lr_number = serializers.SerializerMethodField()
+    lrs = serializers.SerializerMethodField()
+    lr_count = serializers.SerializerMethodField()
     truck_number = serializers.CharField(source='truck.truck_number', read_only=True)
     branch_name = serializers.CharField(source='branch.name', read_only=True)
     created_by_name = serializers.CharField(source='created_by.username', read_only=True)
@@ -78,7 +81,7 @@ class HirePaymentAdviceSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'hpa_number', 'invoice_number', 'hpa_date',
             'branch', 'branch_name',
-            'lr', 'lr_number', 'lr_reference',
+            'lr', 'lr_number', 'lrs', 'lr_count', 'lr_reference',
             'truck', 'truck_number',
             'from_location', 'to_location',
             'owner_name', 'owner_mob',
@@ -95,8 +98,23 @@ class HirePaymentAdviceSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'hpa_number', 'total_deductions', 'balance_rs', 'payment_status',
-            'created_at', 'created_by', 'updated_at', 'updated_by', 'is_deleted'
+            'created_at', 'created_by', 'updated_at', 'updated_by', 'is_deleted',
+            'lrs', 'lr_count'
         ]
+    
+    def get_lr_number(self, obj):
+        """Get primary LR number"""
+        return obj.lr.lr_number if obj.lr else None
+    
+    def get_lrs(self, obj):
+        """Get all linked LRs"""
+        from apps.lr.serializers import LorryReceiptSerializer
+        lrs = obj.lrs
+        return LorryReceiptSerializer(lrs, many=True).data if lrs.exists() else []
+    
+    def get_lr_count(self, obj):
+        """Get count of linked LRs"""
+        return obj.lrs.count()
 
 
 class HirePaymentAdviceCreateSerializer(serializers.ModelSerializer):
@@ -104,7 +122,22 @@ class HirePaymentAdviceCreateSerializer(serializers.ModelSerializer):
     - Branch users: auto-assign branch from user
     - SuperAdmin: must select branch manually
     - All deduction fields are optional (default to 0)
+    - Supports single LR (lr field) or multiple LRs (lrs field)
     """
+    
+    # Support both single LR (backward compatible) and multiple LRs
+    lr = serializers.PrimaryKeyRelatedField(
+        queryset=LorryReceipt.objects.filter(is_deleted=False),
+        required=False,
+        allow_null=True,
+        help_text='Primary Lorry Receipt (for backward compatibility)'
+    )
+    lrs = serializers.PrimaryKeyRelatedField(
+        queryset=LorryReceipt.objects.filter(is_deleted=False),
+        many=True,
+        required=False,
+        help_text='List of Lorry Receipts to link to this HPA'
+    )
     
     # Make truck optional since it will be auto-populated from LR if not provided
     truck = serializers.PrimaryKeyRelatedField(
@@ -148,7 +181,7 @@ class HirePaymentAdviceCreateSerializer(serializers.ModelSerializer):
         model = HirePaymentAdvice
         fields = [
             'branch',  # SuperAdmin selects; Branch users don't provide this
-            'lr', 'invoice_number', 'hpa_date',
+            'lr', 'lrs', 'invoice_number', 'hpa_date',
             'truck', 'from_location', 'to_location',
             'owner_name', 'owner_mob',
             'driver_name', 'driver_mob', 'lr_reference',
@@ -160,13 +193,42 @@ class HirePaymentAdviceCreateSerializer(serializers.ModelSerializer):
         ]
     
     def validate_lr(self, value):
-        """Ensure LR exists and is not deleted"""
-        if value.is_deleted:
+        """Ensure LR exists and is not deleted (backward compatibility)"""
+        if value and value.is_deleted:
             raise serializers.ValidationError("Cannot create HPA for deleted LR")
-        # Check if HPA already exists for this LR (OneToOne relationship)
-        if hasattr(value, 'hpa'):
-            raise serializers.ValidationError("HPA already exists for this LR")
         return value
+    
+    def validate_lrs(self, value):
+        """Ensure all LRs exist and are not deleted"""
+        if value:
+            for lr in value:
+                if lr.is_deleted:
+                    raise serializers.ValidationError(f"Cannot create HPA for deleted LR: {lr.lr_number}")
+        return value
+    
+    def validate(self, data):
+        """Validate that either lr or lrs is provided"""
+        lr = data.get('lr')
+        lrs = data.get('lrs', [])
+        
+        if not lr and not lrs:
+            raise serializers.ValidationError({
+                'lr': 'Either lr or lrs must be provided',
+                'lrs': 'Either lr or lrs must be provided'
+            })
+        
+        # If both provided, use lrs (prefer multiple)
+        if lr and lrs:
+            if lr not in lrs:
+                lrs.append(lr)
+            data['lrs'] = lrs
+            data['lr'] = lrs[0]  # Set first as primary
+        
+        # If only lr provided, convert to lrs list
+        if lr and not lrs:
+            data['lrs'] = [lr]
+        
+        return data
     
     def validate_branch(self, value):
         """Validate branch assignment based on user role"""
@@ -187,16 +249,28 @@ class HirePaymentAdviceCreateSerializer(serializers.ModelSerializer):
         if not user.is_admin and 'branch' in data:
             raise serializers.ValidationError({'branch': 'Branch users cannot select branch (auto-assigned)'})
         
-        # Validate deduction amounts don't exceed lorry hire
-        lr = data.get('lr')
-        if lr:
+        # Get LRs (from lrs list or single lr)
+        lrs = data.get('lrs', [])
+        primary_lr = data.get('lr') or (lrs[0] if lrs else None)
+        
+        if primary_lr:
+            # Calculate total tons from all LRs
+            total_tons = Decimal('0')
+            for lr in lrs:
+                total_tons += lr.total_quantity_mt if hasattr(lr, 'total_quantity_mt') else (lr.quantity_mt or Decimal('0'))
+            
+            # Use provided tons or calculate from LRs
+            tons = data.get('tons')
+            if not tons or tons == 0:
+                data['tons'] = total_tons
+            
             # Use lorry_hire_rs if provided, otherwise calculate from tons and rate
             lorry_hire = data.get('lorry_hire_rs')
             if not lorry_hire:
-                tons = data.get('tons', lr.quantity_mt)
+                tons_value = data.get('tons', total_tons)
                 rate = data.get('rate_per_tonne')
-                if tons and rate:
-                    lorry_hire = float(tons) * float(rate)
+                if tons_value and rate:
+                    lorry_hire = float(tons_value) * float(rate)
                 else:
                     lorry_hire = 0
             
@@ -224,40 +298,57 @@ class HirePaymentAdviceCreateSerializer(serializers.ModelSerializer):
         return data
     
     def create(self, validated_data):
-        """Auto-populate from LR, auto-assign branch, and set created_by"""
-        lr = validated_data['lr']
+        """Auto-populate from LRs, auto-assign branch, and set created_by"""
+        # Get LRs list
+        lrs = validated_data.pop('lrs', [])
+        primary_lr = validated_data.get('lr') or (lrs[0] if lrs else None)
+        
+        if not primary_lr:
+            raise serializers.ValidationError({'lr': 'At least one LR must be provided'})
+        
         user = self.context['request'].user
         
         # Auto-assign branch from user (no manual input) - but allow override if SuperAdmin
         if user.is_admin:
             # SuperAdmin can override
             if 'branch' not in validated_data:
-                validated_data['branch'] = lr.branch
+                validated_data['branch'] = primary_lr.branch
         else:
             # Branch users: auto-assign to their branch
             validated_data['branch'] = user.branch
         
-        # Auto-populate from LR if not provided
+        # Auto-populate from primary LR if not provided
         if 'truck' not in validated_data or validated_data['truck'] is None:
-            validated_data['truck'] = lr.truck
+            validated_data['truck'] = primary_lr.truck
         if 'from_location' not in validated_data:
-            validated_data['from_location'] = lr.from_location
+            validated_data['from_location'] = primary_lr.from_location or primary_lr.primary_from_location
         if 'to_location' not in validated_data:
-            validated_data['to_location'] = lr.to_location
+            validated_data['to_location'] = primary_lr.to_location or primary_lr.primary_to_location
         if 'driver_name' not in validated_data:
-            validated_data['driver_name'] = lr.driver_name
+            validated_data['driver_name'] = primary_lr.driver_name
         if 'driver_mob' not in validated_data:
-            validated_data['driver_mob'] = lr.driver_phone
+            validated_data['driver_mob'] = primary_lr.driver_phone
         if 'lr_reference' not in validated_data:
-            validated_data['lr_reference'] = lr.lr_number
-        if 'tons' not in validated_data:
-            validated_data['tons'] = lr.quantity_mt
+            # For multiple LRs, show first LR number or combined
+            if len(lrs) > 1:
+                lr_numbers = [lr.lr_number for lr in lrs[:3]]
+                validated_data['lr_reference'] = f"{lr_numbers[0]} (+{len(lrs)-1} more)" if len(lrs) > 1 else lr_numbers[0]
+            else:
+                validated_data['lr_reference'] = primary_lr.lr_number
+        
+        # Calculate total tons from all LRs
+        if 'tons' not in validated_data or validated_data['tons'] == 0:
+            total_tons = Decimal('0')
+            for lr in lrs:
+                total_tons += lr.total_quantity_mt if hasattr(lr, 'total_quantity_mt') else (lr.quantity_mt or Decimal('0'))
+            validated_data['tons'] = total_tons
+        
         # Note: rate_per_tonne is not in LR - it's set when creating HPA
         
         # Calculate lorry_hire_rs if tons and rate provided
         # Note: LR doesn't have financial fields - rate_per_tonne must be provided when creating HPA
         if 'lorry_hire_rs' not in validated_data:
-            tons = validated_data.get('tons', lr.quantity_mt)
+            tons = validated_data.get('tons', 0)
             rate = validated_data.get('rate_per_tonne')
             if tons and rate:
                 validated_data['lorry_hire_rs'] = tons * rate
@@ -269,7 +360,16 @@ class HirePaymentAdviceCreateSerializer(serializers.ModelSerializer):
         validated_data['created_by'] = user
         validated_data['updated_by'] = user
         
-        return super().create(validated_data)
+        # Create HPA
+        hpa = super().create(validated_data)
+        
+        # Link additional LRs via ManyToMany (skip primary LR as it's already linked via lr field)
+        if len(lrs) > 1:
+            additional_lrs = [lr for lr in lrs if lr.id != primary_lr.id]
+            if additional_lrs:
+                hpa.additional_lrs.set(additional_lrs)
+        
+        return hpa
 
 
 class HirePaymentAdviceUpdateSerializer(serializers.ModelSerializer):

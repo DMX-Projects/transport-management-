@@ -4,16 +4,36 @@ import { useAuth } from '../hooks/useAuth';
 import { useGetLRsQuery } from '../features/lr/lrApi';
 import { useGetHPAsQuery } from '../features/hpa/hpaApi';
 import { useGetBranchesQuery } from '../features/masters/mastersApi';
-import { XMarkIcon, PlusIcon, MagnifyingGlassIcon, DocumentArrowUpIcon, PencilIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, PlusIcon, MagnifyingGlassIcon, DocumentArrowUpIcon, PencilIcon, EyeIcon } from '@heroicons/react/24/outline';
 
 export default function POD() {
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [filters, setFilters] = useState({});
+    const [documentPreviewUrl, setDocumentPreviewUrl] = useState(null);
+    const [documentPreviewTitle, setDocumentPreviewTitle] = useState('');
 
     const { data: podsData, isLoading: isLoadingPODs } = useGetPODsQuery(filters);
     const [createPOD, { isLoading: isCreating }] = useCreatePODMutation();
     const [updatePOD, { isLoading: isUpdating }] = useUpdatePODMutation();
     const { canEdit } = useAuth();
+
+    const backendOrigin =
+        import.meta.env.VITE_BACKEND_ORIGIN ||
+        `${window.location.protocol}//${window.location.hostname}:8000`;
+
+    const getMediaUrl = (maybeUrl) => {
+        if (!maybeUrl) return null;
+        if (typeof maybeUrl !== 'string') return null;
+        if (maybeUrl.startsWith('http://') || maybeUrl.startsWith('https://')) return maybeUrl;
+        // Django typically returns /media/...
+        return `${backendOrigin}${maybeUrl}`;
+    };
+
+    const isImageUrl = (url) => {
+        if (!url) return false;
+        const clean = url.split('?')[0].toLowerCase();
+        return clean.endsWith('.png') || clean.endsWith('.jpg') || clean.endsWith('.jpeg') || clean.endsWith('.gif') || clean.endsWith('.webp') || clean.endsWith('.bmp');
+    };
 
     // Extract arrays from API response
     const pods = Array.isArray(podsData) ? podsData : (podsData?.results || []);
@@ -126,6 +146,7 @@ export default function POD() {
                                     <th style={{ padding: '12px', textAlign: 'right', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>Qty Received</th>
                                     <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>Condition</th>
                                     <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>Status</th>
+                                    <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>POD Proof</th>
                                     <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: 600, color: '#6b7280' }}>Actions</th>
                                 </tr>
                             </thead>
@@ -150,6 +171,52 @@ export default function POD() {
                                             </span>
                                         </td>
                                         <td style={{ padding: '16px 12px', textAlign: 'center' }}>
+                                            {pod.pod_document ? (() => {
+                                                const url = getMediaUrl(pod.pod_document);
+                                                if (!url) return <span style={{ color: '#9ca3af' }}>-</span>;
+
+                                                if (isImageUrl(url)) {
+                                                    return (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setDocumentPreviewTitle(pod.pod_number || 'POD Proof');
+                                                                setDocumentPreviewUrl(url);
+                                                            }}
+                                                            title="View POD proof"
+                                                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+                                                        >
+                                                            <img
+                                                                src={url}
+                                                                alt="POD Proof"
+                                                                style={{
+                                                                    width: '44px',
+                                                                    height: '44px',
+                                                                    borderRadius: '10px',
+                                                                    objectFit: 'cover',
+                                                                    border: '1px solid #e5e7eb'
+                                                                }}
+                                                            />
+                                                        </button>
+                                                    );
+                                                }
+
+                                                // Non-image (e.g. PDF): show view icon
+                                                return (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}
+                                                        title="Open POD proof"
+                                                        style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#2563eb' }}
+                                                    >
+                                                        <EyeIcon style={{ width: '18px', height: '18px' }} />
+                                                    </button>
+                                                );
+                                            })() : (
+                                                <span style={{ color: '#9ca3af' }}>-</span>
+                                            )}
+                                        </td>
+                                        <td style={{ padding: '16px 12px', textAlign: 'center' }}>
                                             {canEdit && (
                                                 <button
                                                     onClick={() => {/* Edit functionality - to be implemented */}}
@@ -167,6 +234,76 @@ export default function POD() {
                     </div>
                 )}
             </div>
+
+            {/* POD Proof Preview Modal */}
+            {documentPreviewUrl && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(0, 0, 0, 0.6)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 1100,
+                        padding: '20px'
+                    }}
+                    onClick={() => {
+                        setDocumentPreviewUrl(null);
+                        setDocumentPreviewTitle('');
+                    }}
+                >
+                    <div
+                        style={{
+                            background: 'white',
+                            borderRadius: '16px',
+                            maxWidth: '900px',
+                            width: '100%',
+                            maxHeight: '90vh',
+                            overflow: 'auto',
+                            padding: '24px'
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                            <div>
+                                <h3 style={{ fontSize: '18px', fontWeight: 700, margin: 0 }}>{documentPreviewTitle || 'POD Proof'}</h3>
+                                <a
+                                    href={documentPreviewUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    style={{ fontSize: '12px', color: '#2563eb' }}
+                                >
+                                    Open in new tab
+                                </a>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setDocumentPreviewUrl(null);
+                                    setDocumentPreviewTitle('');
+                                }}
+                                style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '6px' }}
+                                title="Close"
+                            >
+                                <XMarkIcon style={{ width: '22px', height: '22px', color: '#6b7280' }} />
+                            </button>
+                        </div>
+
+                        <div style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+                            <img
+                                src={documentPreviewUrl}
+                                alt="POD Proof"
+                                style={{
+                                    maxWidth: '100%',
+                                    maxHeight: '70vh',
+                                    borderRadius: '12px',
+                                    border: '1px solid #e5e7eb'
+                                }}
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Create POD Modal */}
             {showCreateModal && (
@@ -261,24 +398,8 @@ function CreatePODModal({ onClose, onSubmit, isLoading }) {
                 submitData.append(key, formData[key]);
             }
         });
-
-        // Convert FormData to object for API (or handle file upload separately)
-        const cleanedData = { ...formData };
-        const optionalFields = ['delivery_time', 'delivered_to_phone', 'delivery_signature', 
-            'delivery_remarks', 'consignee_remarks', 'remarks', 'pod_document'];
-        
-        optionalFields.forEach(field => {
-            if (!cleanedData[field] || cleanedData[field] === '') {
-                delete cleanedData[field];
-            }
-        });
-
-        // Convert numbers
-        ['quantity_received_mt', 'number_of_bags_received'].forEach(field => {
-            if (cleanedData[field]) cleanedData[field] = field.includes('_mt') ? parseFloat(cleanedData[field]) : parseInt(cleanedData[field]);
-        });
-
-        onSubmit(cleanedData);
+        // Use FormData so file upload actually reaches the backend
+        onSubmit(submitData);
     };
 
     return (

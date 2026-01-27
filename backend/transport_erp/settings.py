@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'apps.hpa',
     'apps.billing',
     'apps.payments',
+    'apps.pod',
     'apps.reports',
     # These will be added as they are developed:
     # 'apps.receipts',

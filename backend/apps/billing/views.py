@@ -131,13 +131,14 @@ class BillViewSet(viewsets.ModelViewSet):
                 'transactions': transaction_data,
                 'totals': totals,
                 'lr': {
-                    'lr_number': hpa.lr.lr_number,
-                    'lr_date': hpa.lr.lr_date,
-                    'consignor': hpa.lr.consignor.name if hpa.lr.consignor else None,
-                    'consignee': hpa.lr.consignee.name if hpa.lr.consignee else None,
-                    'from_location': hpa.lr.from_location,
-                    'to_location': hpa.lr.to_location,
-                    'quantity_mt': hpa.lr.quantity_mt,
+                    'lr_number': hpa.lr.lr_number if hpa.lr else None,
+                    'lr_date': hpa.lr.lr_date if hpa.lr else None,
+                    'consignor': hpa.lr.consignor.name if hpa.lr and hpa.lr.consignor else None,
+                    'consignee': hpa.lr.consignee.name if hpa.lr and hpa.lr.consignee else None,
+                    'from_location': hpa.lr.from_location if hpa.lr else hpa.from_location,
+                    'to_location': hpa.lr.to_location if hpa.lr else hpa.to_location,
+                    'quantity_mt': hpa.lr.quantity_mt if hpa.lr else hpa.tons,
+                    'lr_count': hpa.lrs.count() if hasattr(hpa, 'lrs') else 1,
                 }
             })
         except HirePaymentAdvice.DoesNotExist:

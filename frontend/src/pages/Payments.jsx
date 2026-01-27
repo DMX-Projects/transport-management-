@@ -264,6 +264,7 @@ function AddPaymentModal({ hpa, onClose, onSubmit, isLoading }) {
                                 <option value="BANK">Bank Deduction</option>
                                 <option value="EXTRA">Extra Charge</option>
                                 <option value="OTHER">Other Deduction</option>
+                                <option value="BALANCE_PAYMENT">Balance Payment (Final Payment)</option>
                             </select>
                         </div>
 

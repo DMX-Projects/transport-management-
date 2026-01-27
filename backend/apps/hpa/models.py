@@ -1,6 +1,8 @@
 from django.db import models
+from django.db.models import Q
 from django.core.validators import MinValueValidator
 from django.utils import timezone
+from decimal import Decimal
 from apps.masters.models import BaseModel, Branch, Truck
 from apps.lr.models import LorryReceipt
 
@@ -27,8 +29,8 @@ class HirePaymentAdvice(BaseModel):
         ('BANK', 'Bank'),
     ]
     
-    # HPA Number - MUST match LR number (same number as LR)
-    hpa_number = models.CharField(max_length=20, unique=True, editable=False, help_text='Same as LR Number')
+    # HPA Number - Uses first LR's number, or generates unique number for multi-LR HPAs
+    hpa_number = models.CharField(max_length=20, unique=True, editable=False, help_text='HPA Number (uses first LR number or generated)')
     invoice_number = models.CharField(max_length=50, blank=True, help_text='Invoice/Serial number (e.g., 20153572)')
     hpa_date = models.DateField(default=timezone.now)
     
@@ -42,12 +44,22 @@ class HirePaymentAdvice(BaseModel):
         blank=True
     )
     
-    # Link to LR - CRITICAL: Same number relationship
-    lr = models.OneToOneField(
+    # Link to LR - Now supports multiple LRs per HPA
+    lr = models.ForeignKey(
         LorryReceipt,
         on_delete=models.PROTECT,
-        related_name='hpa',
-        help_text='Linked Lorry Receipt (HPA number matches LR number)'
+        related_name='primary_hpas',
+        help_text='Primary Lorry Receipt (HPA number uses this LR number)',
+        null=True,  # Allow null temporarily for migration
+        blank=True
+    )
+    
+    # Additional LRs linked to this HPA (ManyToMany for multiple LRs)
+    additional_lrs = models.ManyToManyField(
+        LorryReceipt,
+        related_name='additional_hpas',
+        blank=True,
+        help_text='Additional Lorry Receipts linked to this HPA'
     )
     
     # Vehicle and Driver Details (usually same as LR, but can be updated)
@@ -180,14 +192,41 @@ class HirePaymentAdvice(BaseModel):
         indexes = [
             models.Index(fields=['hpa_number']),
             models.Index(fields=['branch', 'hpa_date']),
-            models.Index(fields=['lr', 'payment_status']),
+            models.Index(fields=['lr', 'payment_status']),  # Keep for backward compatibility
             models.Index(fields=['truck', 'payment_status']),
             models.Index(fields=['payment_status']),
         ]
     
     def __str__(self):
         truck_number = self.truck.truck_number if self.truck else 'N/A'
-        return f"HPA {self.hpa_number} - {truck_number}"
+        lr_count = self.lrs.count()
+        return f"HPA {self.hpa_number} - {truck_number} ({lr_count} LR{'s' if lr_count != 1 else ''})"
+    
+    @property
+    def lrs(self):
+        """Get all LRs linked to this HPA (primary + additional)"""
+        from apps.lr.models import LorryReceipt
+        lr_ids = []
+        
+        # Add primary LR
+        if self.lr_id:
+            lr_ids.append(self.lr_id)
+        
+        # Add additional LRs (only if HPA is saved)
+        if self.pk:
+            additional_ids = list(self.additional_lrs.values_list('id', flat=True))
+            lr_ids.extend(additional_ids)
+        
+        # Return queryset
+        if lr_ids:
+            return LorryReceipt.objects.filter(id__in=lr_ids).distinct()
+        else:
+            return LorryReceipt.objects.none()
+    
+    @property
+    def primary_lr(self):
+        """Get the primary LR (for backward compatibility)"""
+        return self.lr
     
     @property
     def has_bill(self):
@@ -200,29 +239,57 @@ class HirePaymentAdvice(BaseModel):
         """Check if this HPA is pending bill creation"""
         return not self.has_bill
     
+    @property
+    def total_tons(self):
+        """Calculate total tons from all linked LRs"""
+        total = Decimal('0')
+        for lr in self.lrs:
+            total += lr.total_quantity_mt if hasattr(lr, 'total_quantity_mt') else (lr.quantity_mt or Decimal('0'))
+        return total
+    
     def save(self, *args, **kwargs):
-        # CRITICAL: HPA number MUST match LR number
-        if self.lr and not self.hpa_number:
-            self.hpa_number = self.lr.lr_number
+        # Set HPA number from first LR if not set
+        if not self.hpa_number:
+            if self.lr:
+                self.hpa_number = self.lr.lr_number
+            else:
+                # Get from linked LRs if lr field is not set
+                linked_lrs = self.lrs if self.pk else []
+                if linked_lrs.exists():
+                    first_lr = linked_lrs.first()
+                    self.hpa_number = first_lr.lr_number
+                else:
+                    # Generate unique number if no LRs yet
+                    from django.db.models import Max
+                    last_hpa = HirePaymentAdvice.objects.aggregate(Max('id'))
+                    next_id = (last_hpa['id__max'] or 0) + 1
+                    self.hpa_number = f"HPA-{next_id:04d}"
         
-        # Auto-populate from LR if not set
-        if self.lr:
+        # Auto-populate from primary LR if not set
+        primary_lr = self.lr
+        if primary_lr:
             if not self.branch_id:
-                self.branch = self.lr.branch
+                self.branch = primary_lr.branch
             if not self.truck_id:
-                self.truck = self.lr.truck
+                self.truck = primary_lr.truck
             if not self.from_location:
-                self.from_location = self.lr.from_location
+                self.from_location = primary_lr.from_location or primary_lr.primary_from_location
             if not self.to_location:
-                self.to_location = self.lr.to_location
+                self.to_location = primary_lr.to_location or primary_lr.primary_to_location
             if not self.driver_name:
-                self.driver_name = self.lr.driver_name
+                self.driver_name = primary_lr.driver_name
             if not self.driver_mob:
-                self.driver_mob = self.lr.driver_phone
+                self.driver_mob = primary_lr.driver_phone
             if not self.lr_reference:
-                self.lr_reference = self.lr.lr_number
-            if not self.tons:
-                self.tons = self.lr.quantity_mt
+                # For multiple LRs, show first LR number or combined
+                lr_numbers = [lr.lr_number for lr in self.lrs[:3]]
+                if len(lr_numbers) > 1:
+                    self.lr_reference = f"{lr_numbers[0]} (+{len(lr_numbers)-1} more)" if len(lr_numbers) > 1 else lr_numbers[0]
+                else:
+                    self.lr_reference = primary_lr.lr_number
+            # Calculate tons from all linked LRs
+            if not self.tons or self.tons == 0:
+                self.tons = self.total_tons
             # Note: rate_per_tonne is not in LR - it must be set when creating HPA
         
         # Calculate lorry hire if tons and rate provided
@@ -237,13 +304,16 @@ class HirePaymentAdvice(BaseModel):
             self.other_deductions
         )
         
-        # Calculate balance
-        self.balance_rs = self.lorry_hire_rs - self.total_deductions
+        # Calculate balance (amount due after deductions, minus payments made)
+        # balance_rs = lorry_hire - deductions - payments_made
+        # This represents the remaining amount to be paid
+        amount_due = self.lorry_hire_rs - self.total_deductions
+        self.balance_rs = max(Decimal('0'), amount_due - self.paid_amount)
         
         # Update payment status
-        if self.paid_amount >= self.balance_rs and self.balance_rs > 0:
+        if self.balance_rs <= 0 and amount_due > 0:
             self.payment_status = 'PAID'
-        elif self.paid_amount > 0:
+        elif self.paid_amount > 0 and self.balance_rs > 0:
             self.payment_status = 'PARTIAL'
         else:
             self.payment_status = 'PENDING'

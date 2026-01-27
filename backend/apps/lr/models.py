@@ -1,5 +1,7 @@
 from django.db import models
 from django.core.validators import MinValueValidator
+from django.db.models import Sum, Max
+from decimal import Decimal
 from apps.masters.models import BaseModel, Branch, Truck, Consignor, Party
 
 
@@ -186,6 +188,49 @@ class LorryReceipt(BaseModel):
         """Check if this LR is pending HPA creation"""
         return not self.has_hpa and self.status in ['ISSUED', 'LOADING', 'IN_TRANSIT', 'PENDING_HPA']
     
+    @property
+    def total_quantity_mt(self):
+        """Total quantity across all items"""
+        return self.lr_items.filter(is_deleted=False).aggregate(
+            Sum('quantity_mt')
+        )['quantity_mt__sum'] or Decimal('0')
+    
+    @property
+    def total_bags(self):
+        """Total bags across all items"""
+        return self.lr_items.filter(is_deleted=False).aggregate(
+            Sum('number_of_bags')
+        )['number_of_bags__sum'] or 0
+    
+    @property
+    def can_edit_items(self):
+        """Check if items can be edited (before ISSUED)"""
+        return self.status in ['DRAFT', 'PENDING_HPA']
+    
+    @property
+    def primary_consignor(self):
+        """First item's consignor (for display)"""
+        first_item = self.lr_items.filter(is_deleted=False).first()
+        return first_item.consignor if first_item else None
+    
+    @property
+    def primary_consignee(self):
+        """First item's consignee (for display)"""
+        first_item = self.lr_items.filter(is_deleted=False).first()
+        return first_item.consignee if first_item else None
+    
+    @property
+    def primary_from_location(self):
+        """Primary from location"""
+        first_item = self.lr_items.filter(is_deleted=False).first()
+        return first_item.from_location if first_item else ''
+    
+    @property
+    def primary_to_location(self):
+        """Primary to location"""
+        first_item = self.lr_items.filter(is_deleted=False).first()
+        return first_item.to_location if first_item else ''
+    
     def save(self, *args, **kwargs):
         # Set lr_date if not provided
         if not self.lr_date:
@@ -215,4 +260,116 @@ class LorryReceipt(BaseModel):
             prefix = self.branch.lr_prefix if self.branch.lr_prefix else "LR"
             self.lr_number = f"{prefix}-{new_num:04d}" if prefix else f"{new_num:04d}"
         
+        super().save(*args, **kwargs)
+
+
+class LRItem(BaseModel):
+    """
+    LR Item - Individual order/consignment within an LR
+    One LR can contain multiple LRItems
+    """
+    
+    # Link to parent LR
+    lr = models.ForeignKey(
+        LorryReceipt,
+        on_delete=models.CASCADE,
+        related_name='lr_items',
+        help_text='Parent Lorry Receipt'
+    )
+    
+    # Sequence number for ordering items
+    sequence_number = models.IntegerField(default=1, help_text='Order sequence within LR')
+    
+    # Consignor and Consignee
+    consignor = models.ForeignKey(
+        Consignor,
+        on_delete=models.PROTECT,
+        related_name='lr_items',
+        help_text='Company sending goods'
+    )
+    consignee = models.ForeignKey(
+        Party,
+        on_delete=models.PROTECT,
+        related_name='lr_items',
+        help_text='Party receiving goods'
+    )
+    delivery_at = models.CharField(max_length=200, blank=True, help_text='Specific delivery location if different')
+    
+    # Location Details
+    from_location = models.CharField(max_length=200, blank=True, default='', help_text='Loading location')
+    to_location = models.CharField(max_length=200, blank=True, default='', help_text='Unloading destination')
+    destination = models.CharField(max_length=200, blank=True, help_text='Final destination')
+    
+    # Material Details
+    material_description = models.TextField(blank=True, help_text='Description of goods')
+    quantity_mt = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+        help_text='Quantity in Metric Tons (M.T.)'
+    )
+    number_of_bags = models.IntegerField(
+        default=0,
+        validators=[MinValueValidator(0)],
+        help_text='Number of bags'
+    )
+    grade = models.CharField(
+        max_length=10,
+        choices=LorryReceipt.GRADE_CHOICES,
+        blank=True,
+        help_text='Grade of material (53/43/OPC)'
+    )
+    grade_quantity = models.CharField(max_length=50, blank=True, help_text='Grade quantity (e.g., 35MT OPC)')
+    
+    # Loading Details
+    loading_from_department = models.CharField(
+        max_length=100,
+        blank=True,
+        default='DISTRIBUTION DEPARTMENT',
+        help_text='Loading from department'
+    )
+    please_load = models.CharField(max_length=100, blank=True)
+    number_of_loads = models.IntegerField(default=0, validators=[MinValueValidator(0)])
+    grade_type_of_pkg = models.CharField(max_length=100, blank=True, help_text='Grade/Type of Package')
+    
+    # Order-specific
+    sap_number = models.CharField(max_length=50, blank=True, help_text='SAP Number from consignor')
+    payment_term = models.CharField(
+        max_length=20,
+        choices=LorryReceipt.PAYMENT_TERM_CHOICES,
+        default='TO_BE_BILLED',
+        help_text='Terms of payment'
+    )
+    gst_payable_by = models.CharField(
+        max_length=50,
+        default='SERVICE',
+        help_text='GST payable by (Service/Consignor/Consignee)'
+    )
+    
+    class Meta:
+        db_table = 'lr_items'
+        ordering = ['sequence_number', 'id']
+        unique_together = [['lr', 'sequence_number']]
+        indexes = [
+            models.Index(fields=['lr', 'sequence_number']),
+            models.Index(fields=['consignor']),
+            models.Index(fields=['consignee']),
+        ]
+        verbose_name = 'LR Item'
+        verbose_name_plural = 'LR Items'
+    
+    def __str__(self):
+        return f"LR {self.lr.lr_number} - Item {self.sequence_number}: {self.consignor.name} → {self.consignee.name}"
+    
+    def save(self, *args, **kwargs):
+        """Auto-assign sequence number if not provided"""
+        if not self.sequence_number or self.sequence_number == 0:
+            max_seq = LRItem.objects.filter(
+                lr=self.lr,
+                is_deleted=False
+            ).exclude(id=self.id if self.pk else None).aggregate(
+                Max('sequence_number')
+            )['sequence_number__max'] or 0
+            self.sequence_number = max_seq + 1
         super().save(*args, **kwargs)

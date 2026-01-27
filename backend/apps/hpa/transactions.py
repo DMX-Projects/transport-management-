@@ -1,6 +1,7 @@
 from django.db import models
 from django.core.validators import MinValueValidator
 from django.utils import timezone
+from decimal import Decimal
 from apps.masters.models import BaseModel, Branch
 from .models import HirePaymentAdvice
 
@@ -17,6 +18,7 @@ class HPATransaction(BaseModel):
         ('BANK', 'Bank Deduction'),
         ('EXTRA', 'Extra Charge'),
         ('OTHER', 'Other Deduction'),
+        ('BALANCE_PAYMENT', 'Balance Payment'),  # For final balance payments
     ]
     
     PAYMENT_MODE_CHOICES = [
@@ -194,7 +196,7 @@ class HPATransaction(BaseModel):
             self._update_hpa_totals()
     
     def _update_hpa_totals(self):
-        """Update HPA deduction totals based on all transactions"""
+        """Update HPA deduction totals and paid amount based on all transactions"""
         from django.db.models import Sum
         
         # Get transaction totals by type
@@ -208,22 +210,42 @@ class HPATransaction(BaseModel):
         if self.pk and not self.is_deleted:
             current_txns.append(self)
         
-        # Calculate totals
+        # Calculate deduction totals (these reduce balance)
         advance_total = sum(t.amount for t in current_txns if t.transaction_type == 'ADVANCE')
         diesel_total = sum(t.amount for t in current_txns if t.transaction_type == 'DIESEL')
         bank_total = sum(t.amount for t in current_txns if t.transaction_type == 'BANK')
-        other_total = sum(t.amount for t in current_txns if t.transaction_type in ['EXTRA', 'OTHER'])
+        extra_total = sum(t.amount for t in current_txns if t.transaction_type == 'EXTRA')
+        other_deduction_total = sum(t.amount for t in current_txns if t.transaction_type == 'OTHER')
         
-        # Update HPA fields
+        # Calculate payment totals (these are actual payments made, not deductions)
+        balance_payment_total = sum(t.amount for t in current_txns if t.transaction_type == 'BALANCE_PAYMENT')
+        
+        # Update HPA deduction fields
         self.hpa.advance_paid_rs = advance_total
         self.hpa.diesel_amount = diesel_total
         self.hpa.bank_amount = bank_total
-        self.hpa.other_deductions = other_total
+        self.hpa.other_deductions = extra_total + other_deduction_total
         
-        # HPA save method will recalculate total_deductions and balance_rs
+        # Update paid_amount (actual payments made to driver)
+        # Sum of all balance payments
+        self.hpa.paid_amount = balance_payment_total
+        
+        # Update payment date and mode from latest balance payment
+        latest_balance_payment = next(
+            (t for t in reversed(current_txns) if t.transaction_type == 'BALANCE_PAYMENT'),
+            None
+        )
+        if latest_balance_payment:
+            self.hpa.payment_date = latest_balance_payment.transaction_date
+            self.hpa.payment_mode = latest_balance_payment.payment_mode or ''
+        
+        # HPA save method will recalculate total_deductions, balance_rs, and payment_status
         self.hpa.save(update_fields=[
             'advance_paid_rs', 
             'diesel_amount', 
             'bank_amount', 
-            'other_deductions'
+            'other_deductions',
+            'paid_amount',
+            'payment_date',
+            'payment_mode'
         ])

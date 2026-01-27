@@ -242,8 +242,12 @@ class DashboardStatsViewSet(viewsets.ReadOnlyModelViewSet):
             else:
                 lr_queryset = lr_queryset.none()
         
-        # Filter LRs without HPA (OneToOne relationship)
-        pending_lrs = lr_queryset.filter(hpa__isnull=True)
+        # Filter LRs without any HPA linked
+        # HPA can be linked either as primary (primary_hpas) or additional (additional_hpas)
+        lrs_with_hpa_ids = lr_queryset.filter(
+            Q(primary_hpas__isnull=False) | Q(additional_hpas__isnull=False)
+        ).values_list('id', flat=True).distinct()
+        pending_lrs = lr_queryset.exclude(id__in=lrs_with_hpa_ids)
         
         # Apply date range filters if provided
         from_date = request.query_params.get('from_date')
@@ -307,11 +311,17 @@ class DashboardStatsViewSet(viewsets.ReadOnlyModelViewSet):
                 hpa_queryset = hpa_queryset.none()
         
         # Get all HPA IDs that are in bills (through LR -> BillItem relationship)
-        # HPA is OneToOne with LR, so we get HPA IDs via lr.hpa
-        billed_hpa_ids = BillItem.objects.filter(
-            bill__is_deleted=False,
-            lr__hpa__isnull=False
-        ).values_list('lr__hpa', flat=True).distinct()
+        # HPA now supports multiple LRs: primary LR via lr field, additional via additional_lrs ManyToMany
+        # Get HPAs where any of their linked LRs are in bills
+        from django.db.models import Q
+        billed_lr_ids = BillItem.objects.filter(
+            bill__is_deleted=False
+        ).values_list('lr_id', flat=True).distinct()
+        
+        # Get HPA IDs where primary LR or any additional LR is in bills
+        billed_hpa_ids = HirePaymentAdvice.objects.filter(
+            Q(lr_id__in=billed_lr_ids) | Q(additional_lrs__id__in=billed_lr_ids)
+        ).values_list('id', flat=True).distinct()
         
         # Filter HPAs without bills
         pending_hpas = hpa_queryset.exclude(id__in=billed_hpa_ids)
@@ -393,8 +403,14 @@ class DashboardStatsViewSet(viewsets.ReadOnlyModelViewSet):
             },
             'lrs': {
                 'total': lr_in_range.count(),
-                'pending_hpa': lr_in_range.filter(hpa__isnull=True).count(),
-                'with_hpa': lr_in_range.filter(hpa__isnull=False).count(),
+                'pending_hpa': lr_in_range.exclude(
+                    id__in=lr_in_range.filter(
+                        Q(primary_hpas__isnull=False) | Q(additional_hpas__isnull=False)
+                    ).values_list('id', flat=True).distinct()
+                ).count(),
+                'with_hpa': lr_in_range.filter(
+                    Q(primary_hpas__isnull=False) | Q(additional_hpas__isnull=False)
+                ).distinct().count(),
                 'by_status': dict(lr_in_range.values('status').annotate(count=Count('id')).values_list('status', 'count'))
             },
             'hpas': {

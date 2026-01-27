@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard';
 import LRManagement from './pages/LRManagement';
 import HPAManagement from './pages/HPAManagement';
 import Payments from './pages/Payments';
+import POD from './pages/POD';
 import Billing from './pages/Billing';
 import Reports from './pages/Reports';
 import Masters from './pages/Masters';
@@ -84,7 +85,7 @@ function AppRoutes() {
         <Route path="/pod" element={
           <ProtectedRoute>
             <DashboardLayout>
-                {/* POD removed */}
+              <POD />
             </DashboardLayout>
           </ProtectedRoute>
         } />
