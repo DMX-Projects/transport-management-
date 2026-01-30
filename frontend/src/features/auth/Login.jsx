@@ -22,7 +22,13 @@ export default function Login() {
             dispatch(setCredentials(result));
             navigate('/dashboard');
         } catch (err) {
-            setError(err.data?.detail || 'Login failed. Please check your credentials.');
+            const status = err.status;
+            const detail = err.data?.detail || err.message;
+            if (status === 404 || detail === 'Not Found') {
+                setError('Backend not reachable. Make sure the Django server is running (e.g. python manage.py runserver on port 8000).');
+            } else {
+                setError(typeof detail === 'string' ? detail : 'Login failed. Please check your credentials.');
+            }
         }
     };
 

@@ -310,27 +310,6 @@ function CreateBillModal({ onClose, onSubmit, isLoading }) {
     const [hpaSearch, setHpaSearch] = useState('');
     const [hpaPage, setHpaPage] = useState(1);
     const { isSuperAdmin, user } = useAuth(); // Get current user role
-    
-    // Branch management for superadmin
-    const [selectedBranchId, setSelectedBranchId] = useState(isSuperAdmin ? '' : String(user?.branch?.id || ''));
-    
-    // Build query params for HPA fetch - only unbilled HPAs from selected branch
-    const hpaQueryParams = selectedBranchId 
-        ? { branch: selectedBranchId, search: hpaSearch, page: hpaPage, page_size: 10 }
-        : { search: hpaSearch, page: hpaPage, page_size: 10 };
-    
-    const { data: hpasData } = useGetHPAsWithoutBillsQuery(
-        hpaQueryParams,
-        { skip: isSuperAdmin && !selectedBranchId } // Only skip for SuperAdmin when no branch selected
-    );
-    
-    const branchSearch = useSearchableSelect('/masters/branches/');
-    const consignorSearch = useSearchableSelect('/masters/consignors/');
-    
-    const consignors = Array.isArray(consignorsData) ? consignorsData : (consignorsData?.results || []);
-    const branches = Array.isArray(branchesData) ? branchesData : (branchesData?.results || []);
-    const lrs = Array.isArray(lrsData) ? lrsData : (lrsData?.results || []);
-    const hpas = Array.isArray(hpasData) ? hpasData : (hpasData?.results || []);
 
     const [formData, setFormData] = useState({
         branch: isSuperAdmin ? '' : String(user?.branch?.id || ''), // SuperAdmin must select; Branch users auto-assigned
@@ -350,11 +329,39 @@ function CreateBillModal({ onClose, onSubmit, isLoading }) {
         consignor_note: '',
     });
 
+    // Branch for HPA list: use formData.branch so dropdown and query stay in sync
+    const branchIdForHpa = formData.branch != null && formData.branch !== '' ? String(formData.branch) : null;
+
+    // Build query params for HPA fetch - all unbilled HPAs for selected branch
+    const hpaQueryParams = branchIdForHpa
+        ? { branch: branchIdForHpa, search: hpaSearch, page: hpaPage, page_size: 50 }
+        : { search: hpaSearch, page: hpaPage, page_size: 50 };
+
+    const { data: hpasData } = useGetHPAsWithoutBillsQuery(
+        hpaQueryParams,
+        { skip: isSuperAdmin && !branchIdForHpa } // Only skip for SuperAdmin when no branch selected
+    );
+
+    const branchSearch = useSearchableSelect('/masters/branches/');
+    const consignorSearch = useSearchableSelect('/masters/consignors/');
+
+    const consignors = Array.isArray(consignorsData) ? consignorsData : (consignorsData?.results || []);
+    const branches = Array.isArray(branchesData) ? branchesData : (branchesData?.results || []);
+    const lrs = Array.isArray(lrsData) ? lrsData : (lrsData?.results || []);
+    const hpas = Array.isArray(hpasData)
+        ? hpasData
+        : (Array.isArray(hpasData?.results)
+            ? hpasData.results
+            : (Array.isArray(hpasData?.hpas)
+                ? hpasData.hpas
+                : (Array.isArray(hpasData?.hpas?.results)
+                    ? hpasData.hpas.results
+                    : [])));
+
     const [billItems, setBillItems] = useState([]); // Array of { lr, destination, quantity_mt, freight_rate, total_amount, remarks }
     const [selectedConsignor, setSelectedConsignor] = useState(null);
     const [availableLRs, setAvailableLRs] = useState([]); // LRs for selected consignor
     const [selectedHPAId, setSelectedHPAId] = useState('');
-    const { data: hpaDetails } = useGetHPADetailsForBillingQuery(selectedHPAId, { skip: !selectedHPAId });
 
     // Get selected consignor details
     useEffect(() => {
@@ -381,12 +388,12 @@ function CreateBillModal({ onClose, onSubmit, isLoading }) {
     const handleChange = (e) => {
         const { name, value } = e.target;
         
-        // If branch changes, update selectedBranchId and clear HPA selection
+        // If branch changes, clear HPA selection and bill items
         if (name === 'branch') {
-            const branchValue = String(value);
-            setSelectedBranchId(branchValue);
             setSelectedHPAId(''); // Clear HPA when branch changes
-            setBillItems([]); // Clear bill items
+            setBillItems([]);
+            setHpaSearch('');
+            setHpaPage(1);
         }
         
         setFormData({ ...formData, [name]: value });
@@ -439,20 +446,36 @@ function CreateBillModal({ onClose, onSubmit, isLoading }) {
         return { totalQty, totalAmount, sgstAmount, cgstAmount, grandTotal };
     };
 
-    // Auto-populate bill data from selected HPA (LR, destination, qty, rate)
+    // Auto-populate bill data from selected HPA (all linked LRs)
     useEffect(() => {
         if (!selectedHPAId) return;
         const hpa = hpas.find(h => h.id === parseInt(selectedHPAId));
         if (!hpa) return;
-        const lr = lrs.find(l => l.id === (hpa.lr || hpa.lr_id));
-        if (!lr) return;
-        // Update consignor from LR
-        setFormData(prev => ({ ...prev, consignor: lr.consignor || prev.consignor }));
-        // Set single item derived from HPA/LR
-        const qty = lr.quantity_mt || '';
+        const hpaLrs = Array.isArray(hpa.lrs) && hpa.lrs.length > 0 ? hpa.lrs : null;
+        const fallbackLr = lrs.find(l => l.id === (hpa.lr || hpa.lr_id));
+        const linkedLrs = hpaLrs || (fallbackLr ? [fallbackLr] : []);
+        if (linkedLrs.length === 0) return;
         const rate = hpa.rate_per_tonne || '';
-        const total = qty && rate ? (parseFloat(qty) * parseFloat(rate)).toFixed(2) : '';
-        setBillItems([{ lr: lr.id, destination: lr.to_location || '', quantity_mt: qty, freight_rate: rate, total_amount: total, remarks: '' }]);
+
+        // Update consignor from first linked LR
+        const firstLr = linkedLrs[0];
+        if (firstLr?.consignor) {
+            setFormData(prev => ({ ...prev, consignor: firstLr.consignor || prev.consignor }));
+        }
+
+        const items = linkedLrs.map(lr => {
+            const qty = lr.total_quantity_mt || lr.quantity_mt || '';
+            const total = qty && rate ? (parseFloat(qty) * parseFloat(rate)).toFixed(2) : '';
+            return {
+                lr: lr.id,
+                destination: lr.to_location || lr.destination || '',
+                quantity_mt: qty,
+                freight_rate: rate,
+                total_amount: total,
+                remarks: ''
+            };
+        });
+        setBillItems(items);
     }, [selectedHPAId, hpas, lrs]);
 
     const handleSubmit = (e) => {
@@ -562,7 +585,7 @@ function CreateBillModal({ onClose, onSubmit, isLoading }) {
                             <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
                                 HPA (Auto-fill Bill Items) *
                             </label>
-                            {isSuperAdmin && !selectedBranchId ? (
+                            {isSuperAdmin && !branchIdForHpa ? (
                                 <div style={{ padding: '12px', background: '#fef3c7', borderRadius: '8px', border: '1px solid #fbbf24' }}>
                                     <p style={{ fontSize: '13px', color: '#92400e', margin: 0 }}>
                                         ⚠️ Please select a branch first to see available HPAs without bills
@@ -577,16 +600,40 @@ function CreateBillModal({ onClose, onSubmit, isLoading }) {
                                     </div>
                                     {hpas.length === 0 ? (
                                         <div style={{ padding: '12px', background: '#fef3c7', borderRadius: '8px', border: '1px solid #fbbf24' }}>
-                                            <p style={{ fontSize: '13px', color: '#92400e', margin: 0 }}>
-                                                ⚠️ No HPAs available for this branch without bills. All HPAs already have bills created.
+                                            <p style={{ fontSize: '13px', color: '#92400e', margin: 0, marginBottom: '8px' }}>
+                                                No unbilled HPAs for this branch.
+                                            </p>
+                                            <p style={{ fontSize: '12px', color: '#92400e', margin: 0 }}>
+                                                Either all HPAs already have bills, or there are no HPAs for this branch. Create new HPAs in <strong>HPA Management</strong> (without creating a bill for them) to see them here.
                                             </p>
                                         </div>
                                     ) : (
                                         <select className="input" value={selectedHPAId} onChange={(e) => setSelectedHPAId(e.target.value)} required>
                                             <option value="">Select HPA (only HPAs without bills)</option>
-                                            {hpas.map(h => (
-                                                <option key={h.id} value={h.id}>{h.hpa_number} • LR {h.lr_number} • Truck {h.truck_number}</option>
-                                            ))}
+                                            {hpas.map(h => {
+                                                const lrList = Array.isArray(h.lrs) ? h.lrs : [];
+                                                const lrNumbers = lrList.length > 0
+                                                    ? lrList.map(lr => lr.lr_number).filter(Boolean).join(', ')
+                                                    : (h.lr_number ? h.lr_number : 'N/A');
+                                                const lrCountLabel = lrList.length > 0 ? `${lrList.length} LR${lrList.length > 1 ? 's' : ''}` : '1 LR';
+                                                const routeLabel = (h.from_location || h.to_location)
+                                                    ? `${h.from_location || '-'} → ${h.to_location || '-'}`
+                                                    : '';
+                                                const rateLabel = h.rate_per_tonne ? `₹${h.rate_per_tonne}/MT` : '';
+                                                const pieces = [
+                                                    h.hpa_number,
+                                                    lrCountLabel,
+                                                    `LR: ${lrNumbers}`,
+                                                    routeLabel,
+                                                    rateLabel,
+                                                    h.truck_number ? `Truck ${h.truck_number}` : ''
+                                                ].filter(Boolean);
+                                                return (
+                                                    <option key={h.id} value={h.id}>
+                                                        {pieces.join(' • ')}
+                                                    </option>
+                                                );
+                                            })}
                                         </select>
                                     )}
                                 </>
