@@ -101,11 +101,18 @@ class DashboardStatsViewSet(viewsets.ReadOnlyModelViewSet):
         last_week = today - timedelta(days=7)
         last_month = today - timedelta(days=30)
         
-        # Get current stats
-        current_stats = self.get_queryset().filter(
-            date=today,
-            stats_type='DAILY'
-        ).first()
+        # Base filter: today's daily stats; Super Admin gets global (branch=None), others get their branch
+        def stats_qs(date_val):
+            qs = DashboardStats.objects.filter(is_deleted=False, date=date_val, stats_type='DAILY')
+            if user.can_access_all_branches:
+                qs = qs.filter(branch__isnull=True)  # Global aggregate for Super Admin
+            elif user.branch_id:
+                qs = qs.filter(branch=user.branch)
+            else:
+                qs = qs.none()
+            return qs
+        
+        current_stats = stats_qs(today).first()
         
         if not current_stats:
             update_dashboard_stats(
@@ -113,17 +120,9 @@ class DashboardStatsViewSet(viewsets.ReadOnlyModelViewSet):
                 date_obj=today,
                 user=user
             )
-            # Refresh from database
-            current_stats = self.get_queryset().filter(
-                date=today,
-                stats_type='DAILY'
-            ).first()
+            current_stats = stats_qs(today).first()
         
-        # Get last week stats for comparison
-        last_week_stats = self.get_queryset().filter(
-            date=last_week,
-            stats_type='DAILY'
-        ).first()
+        last_week_stats = stats_qs(last_week).first()
         
         # Calculate changes
         def calculate_change(current, previous):
@@ -310,15 +309,21 @@ class DashboardStatsViewSet(viewsets.ReadOnlyModelViewSet):
             else:
                 hpa_queryset = hpa_queryset.none()
         
-        # Get all HPA IDs that are in bills (through LR -> BillItem relationship)
-        # HPA now supports multiple LRs: primary LR via lr field, additional via additional_lrs ManyToMany
-        # Get HPAs where any of their linked LRs are in bills
+        # Get all LR IDs that appear in any bill item (via lr or lr_item)
         from django.db.models import Q
-        billed_lr_ids = BillItem.objects.filter(
-            bill__is_deleted=False
-        ).values_list('lr_id', flat=True).distinct()
+        billed_lr_ids = set()
+        billed_lr_ids.update(
+            BillItem.objects.filter(
+                bill__is_deleted=False, lr__isnull=False
+            ).values_list('lr_id', flat=True).distinct()
+        )
+        billed_lr_ids.update(
+            BillItem.objects.filter(
+                bill__is_deleted=False, lr_item__isnull=False
+            ).values_list('lr_item__lr_id', flat=True).distinct()
+        )
         
-        # Get HPA IDs where primary LR or any additional LR is in bills
+        # HPAs whose primary or additional LR is in bills
         billed_hpa_ids = HirePaymentAdvice.objects.filter(
             Q(lr_id__in=billed_lr_ids) | Q(additional_lrs__id__in=billed_lr_ids)
         ).values_list('id', flat=True).distinct()

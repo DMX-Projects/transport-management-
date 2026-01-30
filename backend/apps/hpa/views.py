@@ -221,33 +221,63 @@ class HirePaymentAdviceViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['GET'])
     def without_bills(self, request):
-        """Get all HPAs that don't have bills created yet - filtered by branch"""
-        from apps.billing.models import BillLineItem
+        """Get all HPAs that don't have bills created yet - filtered by branch.
+        An HPA is considered 'billed' if any of its linked LRs (primary or additional) appear in a BillItem.
+        """
+        from apps.billing.models import BillItem
+        from django.db.models import Q
         
-        # Get all HPA IDs that are in bills
-        billed_hpa_ids = BillLineItem.objects.filter(
-            is_deleted=False
-        ).values_list('hpa_id', flat=True).distinct()
+        # LRs that appear in any bill item (via lr FK or lr_item -> lr)
+        billed_lr_ids = set()
+        billed_lr_ids.update(
+            BillItem.objects.filter(is_deleted=False, lr__isnull=False).values_list('lr_id', flat=True).distinct()
+        )
+        billed_lr_ids.update(
+            BillItem.objects.filter(is_deleted=False, lr_item__isnull=False).values_list('lr_item__lr_id', flat=True).distinct()
+        )
         
-        # Get HPAs without bills
-        queryset = self.get_queryset().exclude(id__in=billed_hpa_ids)
+        # HPAs without bills = no linked LR (primary or additional) is in billed_lr_ids
+        queryset = self.get_queryset()
+        if billed_lr_ids:
+            queryset = queryset.exclude(
+                Q(lr_id__in=billed_lr_ids) | Q(additional_lrs__id__in=billed_lr_ids)
+            ).distinct()
         
-        # Filter by branch if provided
+        # Filter by branch if provided (normalize to int for FK)
         branch_id = request.query_params.get('branch')
         if branch_id:
-            queryset = queryset.filter(branch_id=branch_id)
+            try:
+                branch_id = int(branch_id)
+                queryset = queryset.filter(branch_id=branch_id)
+            except (ValueError, TypeError):
+                pass
+        
+        # Search by HPA number, invoice number, LR number
+        search = request.query_params.get('search', '').strip()
+        if search:
+            queryset = queryset.filter(
+                Q(hpa_number__icontains=search)
+                | Q(invoice_number__icontains=search)
+                | Q(lr__lr_number__icontains=search)
+                | Q(additional_lrs__lr_number__icontains=search)
+            ).distinct()
         
         # Apply date filters if provided
         from_date = request.query_params.get('from_date')
         to_date = request.query_params.get('to_date')
-        
         if from_date:
             queryset = queryset.filter(hpa_date__gte=from_date)
         if to_date:
             queryset = queryset.filter(hpa_date__lte=to_date)
         
-        serializer = self.get_serializer(queryset, many=True)
+        # Order and paginate
+        queryset = queryset.order_by('-hpa_date', '-created_at')
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
         
+        serializer = self.get_serializer(queryset, many=True)
         return Response({
             'results': serializer.data,
             'count': queryset.count()
