@@ -6,3 +6,5 @@ class BillingConfig(AppConfig):
     name = 'apps.billing'
     verbose_name = 'Billing & Invoicing'
 
+
+

@@ -6,3 +6,5 @@ class PodConfig(AppConfig):
     name = 'apps.pod'
     verbose_name = 'POD (Proof of Delivery)'
 
+
+

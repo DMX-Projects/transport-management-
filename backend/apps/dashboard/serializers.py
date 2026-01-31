@@ -29,3 +29,5 @@ class DashboardStatsSerializer(serializers.ModelSerializer):
             'created_by_username', 'updated_by_username',
         ]
 
+
+

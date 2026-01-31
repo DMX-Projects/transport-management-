@@ -40,3 +40,5 @@ class DashboardStatsAdmin(admin.ModelAdmin):
         }),
     )
 
+
+

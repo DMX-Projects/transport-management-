@@ -67,26 +67,26 @@ class LorryReceiptCreateSerializer(serializers.ModelSerializer):
         ]
     
     def validate(self, data):
-        """Validate branch assignment based on user role"""
+        """Validate branch assignment based on user role."""
         user = self.context['request'].user
-        
-        if user.is_admin:
-            # SuperAdmin must provide branch
-            if 'branch' not in data or not data['branch']:
+
+        # Super Admin (can access all branches): must provide branch
+        if getattr(user, 'can_access_all_branches', False):
+            if 'branch' not in data or not data.get('branch'):
                 raise serializers.ValidationError({'branch': 'SuperAdmin must select a branch'})
         else:
-            # Branch users shouldn't provide branch (we auto-assign)
+            # Branch users: we will auto-assign their branch; ignore any provided value
             if 'branch' in data:
-                raise serializers.ValidationError({'branch': 'Branch users cannot select branch (auto-assigned)'})
-        
+                data.pop('branch', None)
+
         return data
     
     def create(self, validated_data):
         """Auto-assign branch for non-admin users, use provided branch for superadmin"""
         user = self.context['request'].user
-        
+
         # If not provided (branch user), auto-assign from user
-        if 'branch' not in validated_data or not validated_data['branch']:
+        if 'branch' not in validated_data or not validated_data.get('branch'):
             validated_data['branch'] = user.branch
         
         validated_data['created_by'] = user

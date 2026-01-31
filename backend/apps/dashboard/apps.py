@@ -8,3 +8,5 @@ class DashboardConfig(AppConfig):
     def ready(self):
         import apps.dashboard.signals  # noqa
 
+
+

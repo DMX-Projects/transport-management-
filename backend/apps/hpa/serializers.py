@@ -169,23 +169,23 @@ class HirePaymentAdviceCreateSerializer(serializers.ModelSerializer):
         return value
     
     def validate_branch(self, value):
-        """Validate branch assignment based on user role"""
+        """Validate branch assignment based on user role."""
         user = self.context.get('request').user if self.context.get('request') else None
-        
-        if user and user.is_admin:
+
+        if user and getattr(user, 'can_access_all_branches', False):
             # SuperAdmin must provide branch
             if not value:
                 raise serializers.ValidationError('SuperAdmin must select a branch')
-        
+
         return value
     
     def validate(self, data):
         """Validate HPA creation rules"""
         user = self.context['request'].user
-        
+
         # Branch users shouldn't provide branch (we auto-assign)
-        if not user.is_admin and 'branch' in data:
-            raise serializers.ValidationError({'branch': 'Branch users cannot select branch (auto-assigned)'})
+        if not getattr(user, 'can_access_all_branches', False) and 'branch' in data:
+            data.pop('branch', None)
         
         # Validate deduction amounts don't exceed lorry hire
         lr = data.get('lr')
@@ -229,7 +229,7 @@ class HirePaymentAdviceCreateSerializer(serializers.ModelSerializer):
         user = self.context['request'].user
         
         # Auto-assign branch from user (no manual input) - but allow override if SuperAdmin
-        if user.is_admin:
+        if getattr(user, 'can_access_all_branches', False):
             # SuperAdmin can override
             if 'branch' not in validated_data:
                 validated_data['branch'] = lr.branch

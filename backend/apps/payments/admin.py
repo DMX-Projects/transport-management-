@@ -47,3 +47,5 @@ class PaymentAdmin(admin.ModelAdmin):
         }),
     )
 
+
+

@@ -10,3 +10,5 @@ class ProofOfDeliverySerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['pod_number', 'created_at', 'updated_at']
 
+
+

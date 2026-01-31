@@ -9,3 +9,5 @@ class ProofOfDeliveryAdmin(admin.ModelAdmin):
     search_fields = ['pod_number', 'lr__lr_number', 'delivered_to']
     readonly_fields = ['pod_number', 'created_at', 'updated_at']
 
+
+

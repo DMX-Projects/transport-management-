@@ -23,3 +23,5 @@ class BillItemAdmin(admin.ModelAdmin):
     list_filter = ['bill__branch', 'bill__bill_date']
     search_fields = ['bill__bill_number', 'lr__lr_number', 'destination']
 
+
+
