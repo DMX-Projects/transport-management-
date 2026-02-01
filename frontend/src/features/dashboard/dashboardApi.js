@@ -14,6 +14,15 @@ export const dashboardApi = api.injectEndpoints({
             providesTags: ['Dashboard'],
         }),
 
+        // Get dashboard metrics with date range filtering (OPTIMIZED)
+        getDashboardMetrics: builder.query({
+            query: (params = {}) => ({
+                url: '/dashboard/stats/metrics/',
+                params,
+            }),
+            providesTags: ['Dashboard'],
+        }),
+
         // Refresh dashboard stats (SUPER_ADMIN only)
         refreshDashboardStats: builder.mutation({
             query: (data) => ({
@@ -62,6 +71,7 @@ export const dashboardApi = api.injectEndpoints({
 export const {
     useGetDashboardStatsQuery,
     useGetDashboardSummaryQuery,
+    useGetDashboardMetricsQuery,
     useRefreshDashboardStatsMutation,
     useGetHPAsWithoutBillsQuery,
     useGetPendingLRsQuery,

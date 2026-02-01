@@ -34,6 +34,9 @@ class LRItemSerializer(serializers.ModelSerializer):
 class LRItemNestedCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating LRItems in nested context (lr field excluded)"""
     
+    # Make sequence_number optional - it will be auto-assigned
+    sequence_number = serializers.IntegerField(required=False, default=1)
+    
     class Meta:
         model = LRItem
         fields = [
@@ -294,9 +297,9 @@ class LorryReceiptCreateSerializer(serializers.ModelSerializer):
             if 'branch' not in data or not data['branch']:
                 raise serializers.ValidationError({'branch': 'SuperAdmin must select a branch'})
         else:
-            # Branch users shouldn't provide branch (we auto-assign)
-            if 'branch' in data:
-                raise serializers.ValidationError({'branch': 'Branch users cannot select branch (auto-assigned)'})
+            # Branch users: use their branch (ignore any provided branch)
+            # We'll override in create method
+            pass
         
         # Items validation
         if not lr_items or len(lr_items) == 0:
@@ -329,12 +332,16 @@ class LorryReceiptCreateSerializer(serializers.ModelSerializer):
         
         # Create items with sequence numbers
         for idx, item_data in enumerate(lr_items_data, 1):
+            # Remove sequence_number from item_data if present (we'll set it explicitly)
+            item_data_copy = dict(item_data)
+            item_data_copy.pop('sequence_number', None)
+            
             LRItem.objects.create(
                 lr=lr,
                 sequence_number=idx,
                 created_by=user,
                 updated_by=user,
-                **item_data
+                **item_data_copy
             )
         
         return lr

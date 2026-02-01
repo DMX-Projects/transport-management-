@@ -14,6 +14,8 @@ import {
     XMarkIcon,
     MagnifyingGlassIcon,
     BellIcon,
+    ClockIcon,
+    ExclamationCircleIcon,
 } from '@heroicons/react/24/outline';
 import { useDispatch, useSelector } from 'react-redux';
 import { logout, selectCurrentUser } from '../../features/auth/authSlice';
@@ -23,10 +25,14 @@ const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
     { name: 'LR Management', href: '/lr', icon: DocumentTextIcon },
     { name: 'HPA Management', href: '/hpa', icon: TruckIcon },
+    { name: 'Active HPAs', href: '/active-hpas', icon: ClockIcon },
     { name: 'POD Management', href: '/pod', icon: DocumentCheckIcon },
     { name: 'Payments', href: '/payments', icon: CreditCardIcon },
     { name: 'Billing', href: '/billing', icon: ReceiptPercentIcon },
+    { name: 'Billing Templates', href: '/billing-templates', icon: Cog6ToothIcon },
+    { name: 'Client Payments', href: '/client-payments', icon: CreditCardIcon },
     { name: 'Reports', href: '/reports', icon: ChartBarIcon },
+    { name: 'Outstanding Reports', href: '/outstanding-reports', icon: ExclamationCircleIcon },
     { name: 'Masters', href: '/masters', icon: Cog6ToothIcon },
 ];
 
@@ -227,7 +233,7 @@ export default function DashboardLayout({ children }) {
                                             : user?.username || 'User'}
                                     </p>
                                     <p style={{ fontSize: '11px', color: '#6b7280', margin: 0 }}>
-                                        {user?.role ? user.role.replace('_', ' ') : 'Role'}
+                                        {user?.role && typeof user.role === 'string' ? user.role.replace(/_/g, ' ') : 'Role'}
                                         {user?.branch_name ? ` • ${user.branch_name}` : ''}
                                     </p>
                                 </div>

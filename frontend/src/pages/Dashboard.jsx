@@ -6,7 +6,7 @@ import {
     CurrencyDollarIcon,
     ClockIcon,
 } from '@heroicons/react/24/outline';
-import { useGetDashboardSummaryQuery, useGetHPAsWithoutBillsQuery, useGetPendingLRsQuery, useGetPendingHPAsQuery } from '../features/dashboard/dashboardApi';
+import { useGetDashboardSummaryQuery, useGetDashboardMetricsQuery, useGetHPAsWithoutBillsQuery, useGetPendingLRsQuery, useGetPendingHPAsQuery } from '../features/dashboard/dashboardApi';
 import { useAuth } from '../hooks/useAuth';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -27,6 +27,13 @@ export default function Dashboard() {
     });
     
     const { data: summaryData } = useGetDashboardSummaryQuery();
+    
+    // Use the new metrics endpoint with date range filtering
+    const { data: metricsData, isLoading: isLoadingMetrics } = useGetDashboardMetricsQuery({
+        from_date: dateRange.from_date,
+        to_date: dateRange.to_date
+    });
+    
     const { data: hpasWithoutBillsData, isLoading: isLoadingHPAs } = useGetHPAsWithoutBillsQuery();
 
     // Search + pagination state for dashboard lists
@@ -58,6 +65,11 @@ export default function Dashboard() {
     const currentStats = summaryData?.current || {};
     const changes = summaryData?.changes || {};
     
+    // Get metrics from the optimized metrics endpoint (with date range)
+    // The response structure is { date_range, metrics, totals }
+    const metrics = metricsData?.metrics || {};
+    const totals = metricsData?.totals || {};
+    
     // Format currency
     const formatCurrency = (amount) => {
         if (!amount) return '₹0';
@@ -80,35 +92,39 @@ export default function Dashboard() {
     const stats = [
         {
             name: 'Active Trucks',
-            value: currentStats.active_trucks || 0,
+            value: isLoadingMetrics ? '...' : (metrics.active_trucks || 0),
             icon: TruckIcon,
             color: '#3b82f6',
             bgColor: '#eff6ff',
-            onClick: () => navigate('/masters/trucks')
+            onClick: () => navigate('/masters/trucks'),
+            description: 'Trucks currently in movement/transit'
         },
         {
             name: 'Open LRs',
-            value: pendingLRs?.count || 0,
+            value: isLoadingMetrics ? '...' : (metrics.pending_lrs || 0),
             icon: DocumentTextIcon,
             color: '#8b5cf6',
             bgColor: '#f5f3ff',
-            onClick: () => navigate('/lr', { state: { filter: { status: 'PENDING_HPA' } } })
+            onClick: () => navigate('/lr', { state: { filter: { status: 'PENDING_HPA' } } }),
+            description: 'LRs pending HPA creation'
         },
         {
             name: 'Open HPAs',
-            value: pendingHPAs?.count || 0,
+            value: isLoadingMetrics ? '...' : (metrics.pending_hpas || 0),
             icon: ClockIcon,
             color: '#f59e0b',
             bgColor: '#fffbeb',
-            onClick: () => navigate('/hpa', { state: { filter: { status: 'PENDING_BILL' } } })
+            onClick: () => navigate('/hpa', { state: { filter: { status: 'PENDING_BILL' } } }),
+            description: 'HPAs pending bill generation'
         },
         {
-            name: "Today's Revenue",
-            value: formatCurrency(currentStats.total_revenue || 0),
+            name: "Revenue",
+            value: isLoadingMetrics ? '...' : formatCurrency(metrics.total_revenue || 0),
             icon: CurrencyDollarIcon,
             color: '#22c55e',
             bgColor: '#f0fdf4',
-            onClick: () => navigate('/billing')
+            onClick: () => navigate('/billing'),
+            description: 'Total billed amount in period'
         },
     ];
 
@@ -164,9 +180,14 @@ export default function Dashboard() {
                         >
                             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                                 <div style={{ flex: 1 }}>
-                                    <p style={{ fontSize: '14px', color: '#6b7280', marginBottom: '8px', fontWeight: 500 }}>
+                                    <p style={{ fontSize: '14px', color: '#6b7280', marginBottom: '4px', fontWeight: 500 }}>
                                         {stat.name}
                                     </p>
+                                    {stat.description && (
+                                        <p style={{ fontSize: '11px', color: '#9ca3af', marginBottom: '8px' }}>
+                                            {stat.description}
+                                        </p>
+                                    )}
                                     <p style={{ fontSize: '32px', fontWeight: 700, color: '#111827', marginBottom: '12px' }}>
                                         {stat.value}
                                     </p>

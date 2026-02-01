@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useGetHPAsQuery, useCreateHPAMutation, useUpdateHPAMutation, useMarkAsPaidMutation, useGetHPATransactionsQuery } from '../features/hpa/hpaApi';
+import { useNavigate } from 'react-router-dom';
+import { useGetHPAsQuery, useCreateHPAMutation, useUpdateHPAMutation, useMarkAsPaidMutation, useGetHPATransactionsQuery, useGetHPAInvoicesQuery, useAddHPAInvoiceMutation, useDeleteHPAInvoiceMutation } from '../features/hpa/hpaApi';
 import { useCreatePODMutation } from '../features/pod/podApi';
 import { useGetLRsWithoutHPAQuery } from '../features/lr/lrApi';
 import { useGetBranchesQuery, useGetTrucksQuery } from '../features/masters/mastersApi';
@@ -10,6 +11,7 @@ import { useSearchableSelect } from '../hooks/useSearchableSelect';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
 export default function HPAManagement() {
+    const navigate = useNavigate();
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [showViewModal, setShowViewModal] = useState(false);
@@ -125,7 +127,11 @@ export default function HPAManagement() {
                     </h1>
                     <p style={{ color: '#6b7280' }}>Create and manage Hire Payment Advices (HPA number matches LR number)</p>
                 </div>
-                <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
+                <button 
+                    className="btn btn-primary" 
+                    onClick={() => navigate('/hpa/create')}
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
                     <PlusIcon style={{ width: '20px', height: '20px' }} />
                     Create New HPA
                 </button>
@@ -215,7 +221,20 @@ export default function HPAManagement() {
                                         onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                                     >
                                         <td style={{ padding: '16px 12px', fontSize: '14px', fontWeight: 600, color: '#111827' }}>{hpa.hpa_number || '-'}</td>
-                                        <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563' }}>{hpa.invoice_number || '-'}</td>
+                                        <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563' }}>
+                                            {hpa.invoice_count > 0 ? (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <span style={{ maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={hpa.invoice_list}>
+                                                        {hpa.invoice_list?.split(',').slice(0, 2).join(', ')}
+                                                    </span>
+                                                    {hpa.invoice_count > 2 && (
+                                                        <span className="badge badge-info" style={{ fontSize: '10px', padding: '2px 6px' }}>
+                                                            +{hpa.invoice_count - 2}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ) : (hpa.invoice_number || '-')}
+                                        </td>
                                         <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563' }}>{hpa.hpa_date ? new Date(hpa.hpa_date).toLocaleDateString() : '-'}</td>
                                         <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563', fontWeight: 600 }}>{hpa.lr_number || '-'}</td>
                                         <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563' }}>{hpa.truck_number || '-'}</td>
@@ -326,10 +345,7 @@ export default function HPAManagement() {
                                                 </button>
                                                 {canEdit && (
                                                     <button
-                                                        onClick={() => {
-                                                            setSelectedHPA(hpa);
-                                                            setShowEditModal(true);
-                                                        }}
+                                                        onClick={() => navigate(`/hpa/edit/${hpa.id}`)}
                                                         style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#6366f1' }}
                                                         title="Edit HPA"
                                                     >
@@ -2036,6 +2052,43 @@ function TransactionsModal({ hpa, onClose }) {
 function ViewHPAModal({ hpa, onClose }) {
     const { data: transactionsData, isLoading: isLoadingTransactions } = useGetHPATransactionsQuery(hpa.id);
     const transactions = transactionsData?.transactions || [];
+    
+    // Phase 1: Invoice Management
+    const { data: invoicesData, isLoading: isLoadingInvoices, refetch: refetchInvoices } = useGetHPAInvoicesQuery(hpa.id);
+    const [addInvoice, { isLoading: isAddingInvoice }] = useAddHPAInvoiceMutation();
+    const [deleteInvoice, { isLoading: isDeletingInvoice }] = useDeleteHPAInvoiceMutation();
+    const [showAddInvoiceForm, setShowAddInvoiceForm] = useState(false);
+    const [newInvoice, setNewInvoice] = useState({ invoice_number: '', invoice_date: '', amount: '', remarks: '' });
+    
+    const invoices = invoicesData?.invoices || [];
+    const invoiceTotalAmount = invoicesData?.total_amount || 0;
+    
+    const handleAddInvoice = async (e) => {
+        e.preventDefault();
+        try {
+            await addInvoice({ 
+                hpaId: hpa.id, 
+                ...newInvoice,
+                amount: newInvoice.amount ? parseFloat(newInvoice.amount) : 0
+            }).unwrap();
+            setNewInvoice({ invoice_number: '', invoice_date: '', amount: '', remarks: '' });
+            setShowAddInvoiceForm(false);
+            refetchInvoices();
+        } catch (error) {
+            alert('Failed to add invoice: ' + (error.data?.invoice_number || error.message || 'Unknown error'));
+        }
+    };
+    
+    const handleDeleteInvoice = async (invoiceId, invoiceNumber) => {
+        if (window.confirm(`Delete invoice ${invoiceNumber}?`)) {
+            try {
+                await deleteInvoice({ hpaId: hpa.id, invoiceId }).unwrap();
+                refetchInvoices();
+            } catch (error) {
+                alert('Failed to delete invoice: ' + (error.message || 'Unknown error'));
+            }
+        }
+    };
 
     const getTransactionTypeBadge = (type) => {
         const badges = {
@@ -2145,6 +2198,123 @@ function ViewHPAModal({ hpa, onClose }) {
                         <p style={{ fontSize: '11px', color: '#1e40af', marginBottom: '4px', fontWeight: 600 }}>Remaining Balance</p>
                         <p style={{ fontSize: '20px', fontWeight: 700, color: '#10b981' }}>₹{remainingBalance.toLocaleString()}</p>
                     </div>
+                </div>
+
+                {/* Invoice Numbers Section - Phase 1 */}
+                <div style={{ marginBottom: '32px', padding: '24px', background: '#f0fdf4', borderRadius: '12px', border: '2px solid #22c55e' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                        <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#166534' }}>
+                            Invoice Numbers ({invoices.length + (hpa.invoice_number && !invoices.some(i => i.invoice_number === hpa.invoice_number) ? 1 : 0)})
+                        </h3>
+                        <button
+                            onClick={() => setShowAddInvoiceForm(!showAddInvoiceForm)}
+                            className="btn btn-primary"
+                            style={{ padding: '6px 12px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        >
+                            <PlusIcon style={{ width: '16px', height: '16px' }} />
+                            Add Invoice
+                        </button>
+                    </div>
+                    
+                    {/* Add Invoice Form */}
+                    {showAddInvoiceForm && (
+                        <form onSubmit={handleAddInvoice} style={{ marginBottom: '16px', padding: '16px', background: 'white', borderRadius: '8px', border: '1px solid #86efac' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '12px' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: '#374151' }}>Invoice Number *</label>
+                                    <input
+                                        type="text"
+                                        value={newInvoice.invoice_number}
+                                        onChange={(e) => setNewInvoice(prev => ({ ...prev, invoice_number: e.target.value }))}
+                                        placeholder="e.g., INV-2024-001"
+                                        required
+                                        className="input"
+                                        style={{ fontSize: '13px', padding: '8px' }}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: '#374151' }}>Invoice Date</label>
+                                    <input
+                                        type="date"
+                                        value={newInvoice.invoice_date}
+                                        onChange={(e) => setNewInvoice(prev => ({ ...prev, invoice_date: e.target.value }))}
+                                        className="input"
+                                        style={{ fontSize: '13px', padding: '8px' }}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: '#374151' }}>Amount</label>
+                                    <input
+                                        type="number"
+                                        value={newInvoice.amount}
+                                        onChange={(e) => setNewInvoice(prev => ({ ...prev, amount: e.target.value }))}
+                                        placeholder="0.00"
+                                        className="input"
+                                        style={{ fontSize: '13px', padding: '8px' }}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: '#374151' }}>Remarks</label>
+                                    <input
+                                        type="text"
+                                        value={newInvoice.remarks}
+                                        onChange={(e) => setNewInvoice(prev => ({ ...prev, remarks: e.target.value }))}
+                                        placeholder="Optional"
+                                        className="input"
+                                        style={{ fontSize: '13px', padding: '8px' }}
+                                    />
+                                </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                <button type="button" onClick={() => setShowAddInvoiceForm(false)} style={{ padding: '6px 16px', background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}>
+                                    Cancel
+                                </button>
+                                <button type="submit" className="btn btn-primary" style={{ padding: '6px 16px', fontSize: '13px' }} disabled={isAddingInvoice}>
+                                    {isAddingInvoice ? 'Adding...' : 'Add Invoice'}
+                                </button>
+                            </div>
+                        </form>
+                    )}
+                    
+                    {/* Invoice List */}
+                    {isLoadingInvoices ? (
+                        <p style={{ fontSize: '13px', color: '#6b7280', fontStyle: 'italic' }}>Loading invoices...</p>
+                    ) : (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                            {/* Show legacy invoice_number if set */}
+                            {hpa.invoice_number && !invoices.some(i => i.invoice_number === hpa.invoice_number) && (
+                                <div style={{ padding: '8px 12px', background: 'white', borderRadius: '8px', border: '1px solid #86efac', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ fontWeight: 600, color: '#166534' }}>{hpa.invoice_number}</span>
+                                    <span style={{ fontSize: '11px', color: '#9ca3af' }}>(Legacy)</span>
+                                </div>
+                            )}
+                            {invoices.map(invoice => (
+                                <div key={invoice.id} style={{ padding: '8px 12px', background: 'white', borderRadius: '8px', border: '1px solid #86efac', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <div>
+                                        <span style={{ fontWeight: 600, color: '#166534' }}>{invoice.invoice_number}</span>
+                                        {invoice.amount > 0 && <span style={{ fontSize: '12px', color: '#6b7280', marginLeft: '8px' }}>₹{parseFloat(invoice.amount).toLocaleString()}</span>}
+                                        {invoice.invoice_date && <span style={{ fontSize: '11px', color: '#9ca3af', marginLeft: '8px' }}>{invoice.invoice_date}</span>}
+                                    </div>
+                                    <button
+                                        onClick={() => handleDeleteInvoice(invoice.id, invoice.invoice_number)}
+                                        style={{ padding: '2px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#ef4444' }}
+                                        title="Delete invoice"
+                                        disabled={isDeletingInvoice}
+                                    >
+                                        <XMarkIcon style={{ width: '14px', height: '14px' }} />
+                                    </button>
+                                </div>
+                            ))}
+                            {invoices.length === 0 && !hpa.invoice_number && (
+                                <p style={{ fontSize: '13px', color: '#6b7280', fontStyle: 'italic' }}>No invoices added yet. Click "Add Invoice" to add one.</p>
+                            )}
+                        </div>
+                    )}
+                    {invoiceTotalAmount > 0 && (
+                        <p style={{ fontSize: '13px', color: '#166534', marginTop: '12px', fontWeight: 600 }}>
+                            Total Invoice Amount: ₹{invoiceTotalAmount.toLocaleString()}
+                        </p>
+                    )}
                 </div>
 
                 {/* Initial Deductions Breakdown */}

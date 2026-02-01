@@ -99,6 +99,92 @@ export const reportsApi = api.injectEndpoints({
             }),
             providesTags: ['Report'],
         }),
+
+        // ============================================================
+        // PHASE 5: Outstanding Reports & Financial Analysis
+        // ============================================================
+
+        // Outstanding summary report
+        getOutstandingSummary: builder.query({
+            query: () => '/reports/outstanding_summary/',
+            providesTags: ['Report', 'Outstanding'],
+        }),
+
+        // Outstanding detailed report
+        getOutstandingDetailed: builder.query({
+            query: (params = {}) => ({
+                url: '/reports/outstanding_detailed/',
+                params,
+            }),
+            providesTags: ['Report', 'Outstanding'],
+        }),
+
+        // Aging analysis report
+        getAgingAnalysis: builder.query({
+            query: () => '/reports/aging_analysis/',
+            providesTags: ['Report', 'Outstanding'],
+        }),
+
+        // Settlement report
+        getSettlementReport: builder.query({
+            query: (params = {}) => ({
+                url: '/reports/settlement_report/',
+                params,
+            }),
+            providesTags: ['Report'],
+        }),
+
+        // Client statement
+        getClientStatement: builder.query({
+            query: ({ consignorId, ...params }) => ({
+                url: `/reports/client-statement/${consignorId}/`,
+                params,
+            }),
+            providesTags: ['Report'],
+        }),
+
+        // ============================================================
+        // EXCEL EXPORT ENDPOINTS
+        // ============================================================
+
+        // Export outstanding bills to Excel
+        exportOutstanding: builder.mutation({
+            query: (params = {}) => ({
+                url: '/reports/export-outstanding/',
+                method: 'GET',
+                params,
+                responseHandler: (response) => response.blob(),
+            }),
+        }),
+
+        // Export aging analysis to Excel
+        exportAging: builder.mutation({
+            query: () => ({
+                url: '/reports/export-aging/',
+                method: 'GET',
+                responseHandler: (response) => response.blob(),
+            }),
+        }),
+
+        // Export settlement report to Excel
+        exportSettlement: builder.mutation({
+            query: (params = {}) => ({
+                url: '/reports/export-settlement/',
+                method: 'GET',
+                params,
+                responseHandler: (response) => response.blob(),
+            }),
+        }),
+
+        // Export client statement to Excel
+        exportClientStatement: builder.mutation({
+            query: ({ consignorId, ...params }) => ({
+                url: `/reports/export-client-statement/${consignorId}/`,
+                method: 'GET',
+                params,
+                responseHandler: (response) => response.blob(),
+            }),
+        }),
     }),
 });
 
@@ -116,4 +202,15 @@ export const {
     useGetHPAReportQuery,
     useGetPaymentReportQuery,
     useGetBillReportQuery,
+    // Phase 5: Outstanding Reports
+    useGetOutstandingSummaryQuery,
+    useGetOutstandingDetailedQuery,
+    useGetAgingAnalysisQuery,
+    useGetSettlementReportQuery,
+    useGetClientStatementQuery,
+    // Excel Export
+    useExportOutstandingMutation,
+    useExportAgingMutation,
+    useExportSettlementMutation,
+    useExportClientStatementMutation,
 } = reportsApi;

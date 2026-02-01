@@ -8,6 +8,7 @@ import {
 } from '../features/masters/mastersApi';
 import { BuildingOfficeIcon, TruckIcon, UserGroupIcon, PlusIcon, XMarkIcon, MagnifyingGlassIcon, CogIcon } from '@heroicons/react/24/outline';
 import { useAuth } from '../hooks/useAuth';
+import toast from 'react-hot-toast';
 
 export default function Masters() {
     const [activeTab, setActiveTab] = useState('consignors');
@@ -285,7 +286,7 @@ function TrucksTab({ onAddNew }) {
         e.preventDefault();
         try {
             await createTruck(formData).unwrap();
-            alert('✅ Truck created successfully!');
+            toast.success('Truck created successfully!');
             setShowModal(false);
             setFormData({
                 truck_number: '', truck_type: 'MARKET', owner_name: '', owner_phone: '',

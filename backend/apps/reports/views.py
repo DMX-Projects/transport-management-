@@ -19,8 +19,10 @@ from .tasks import (
     check_task_status
 )
 from .pdf_utils import PDFCacheManager
-from django.http import FileResponse, JsonResponse
+from django.http import FileResponse, JsonResponse, HttpResponse
 import logging
+import io
+from decimal import Decimal
 
 logger = logging.getLogger(__name__)
 
@@ -669,5 +671,1041 @@ class ReportsViewSet(viewsets.ViewSet):
                 {'error': f'Failed to generate PDF: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    # ============================================================
+    # PHASE 5: Outstanding Reports & Financial Analysis
+    # ============================================================
+
+    @action(detail=False, methods=['GET'])
+    def outstanding_summary(self, request):
+        """
+        Get high-level outstanding summary with aging buckets.
+        
+        Returns:
+        - Total outstanding
+        - Breakdown by aging bucket (0-30, 31-60, 61-90, 90+ days)
+        - Top consignors by outstanding
+        - Branch-wise breakdown (for admin)
+        """
+        from django.db.models import Sum, Count
+        from decimal import Decimal
+        from apps.billing.models import ClientPayment
+        from apps.masters.models import Consignor
+        
+        user = request.user
+        bills = Bill.objects.filter(is_deleted=False)
+        
+        # Branch filter
+        if not user.can_access_all_branches and user.branch:
+            bills = bills.filter(branch=user.branch)
+        
+        # Exclude fully paid bills
+        outstanding_bills = bills.exclude(payment_status='PAID')
+        
+        # Calculate totals
+        total_outstanding = Decimal('0')
+        aging_buckets = {
+            'current': {'count': 0, 'amount': Decimal('0')},
+            '0-30': {'count': 0, 'amount': Decimal('0')},
+            '31-60': {'count': 0, 'amount': Decimal('0')},
+            '61-90': {'count': 0, 'amount': Decimal('0')},
+            '90+': {'count': 0, 'amount': Decimal('0')},
+        }
+        
+        consignor_outstanding = {}
+        branch_outstanding = {}
+        
+        for bill in outstanding_bills:
+            outstanding = bill.outstanding_amount
+            total_outstanding += outstanding
+            
+            # Aging bucket
+            bucket = bill.aging_bucket
+            if bucket in aging_buckets:
+                aging_buckets[bucket]['count'] += 1
+                aging_buckets[bucket]['amount'] += outstanding
+            
+            # Consignor breakdown
+            if bill.consignor_id:
+                c_id = bill.consignor_id
+                if c_id not in consignor_outstanding:
+                    consignor_outstanding[c_id] = {
+                        'consignor_id': c_id,
+                        'consignor_name': bill.consignor.name if bill.consignor else 'Unknown',
+                        'gstin': bill.consignor.gstin if bill.consignor else '',
+                        'outstanding': Decimal('0'),
+                        'bill_count': 0,
+                        'overdue_count': 0
+                    }
+                consignor_outstanding[c_id]['outstanding'] += outstanding
+                consignor_outstanding[c_id]['bill_count'] += 1
+                if bill.payment_status == 'OVERDUE':
+                    consignor_outstanding[c_id]['overdue_count'] += 1
+            
+            # Branch breakdown
+            if bill.branch_id:
+                b_id = bill.branch_id
+                if b_id not in branch_outstanding:
+                    branch_outstanding[b_id] = {
+                        'branch_id': b_id,
+                        'branch_name': bill.branch.name if bill.branch else 'Unknown',
+                        'outstanding': Decimal('0'),
+                        'bill_count': 0
+                    }
+                branch_outstanding[b_id]['outstanding'] += outstanding
+                branch_outstanding[b_id]['bill_count'] += 1
+        
+        # Sort consignors by outstanding (descending)
+        top_consignors = sorted(
+            consignor_outstanding.values(),
+            key=lambda x: x['outstanding'],
+            reverse=True
+        )[:10]
+        
+        # Sort branches by outstanding (descending)
+        branches_breakdown = sorted(
+            branch_outstanding.values(),
+            key=lambda x: x['outstanding'],
+            reverse=True
+        )
+        
+        # Calculate collection metrics
+        total_billed = bills.aggregate(total=Sum('grand_total'))['total'] or Decimal('0')
+        total_payments = ClientPayment.objects.filter(
+            bill__in=bills,
+            is_deleted=False
+        ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+        collection_rate = (total_payments / total_billed * 100) if total_billed > 0 else Decimal('0')
+        
+        return Response({
+            'total_outstanding': total_outstanding,
+            'total_billed': total_billed,
+            'total_collected': total_payments,
+            'collection_rate': round(collection_rate, 1),
+            'outstanding_bills_count': outstanding_bills.count(),
+            'aging_buckets': aging_buckets,
+            'top_consignors': top_consignors,
+            'branches_breakdown': branches_breakdown if user.can_access_all_branches else None,
+        })
+
+    @action(detail=False, methods=['GET'])
+    def outstanding_detailed(self, request):
+        """
+        Get detailed outstanding bills report.
+        Supports filtering, sorting, and pagination.
+        """
+        from django.db.models import Sum
+        from decimal import Decimal
+        
+        user = request.user
+        bills = Bill.objects.filter(is_deleted=False).exclude(payment_status='PAID')
+        
+        # Branch filter
+        if not user.can_access_all_branches and user.branch:
+            bills = bills.filter(branch=user.branch)
+        
+        # Consignor filter
+        consignor_id = request.query_params.get('consignor')
+        if consignor_id:
+            bills = bills.filter(consignor_id=consignor_id)
+        
+        # Aging bucket filter
+        aging_filter = request.query_params.get('aging')
+        if aging_filter:
+            filtered_bill_ids = []
+            for bill in bills:
+                if bill.aging_bucket == aging_filter:
+                    filtered_bill_ids.append(bill.id)
+            bills = bills.filter(id__in=filtered_bill_ids)
+        
+        # Payment status filter
+        status_filter = request.query_params.get('payment_status')
+        if status_filter:
+            bills = bills.filter(payment_status=status_filter)
+        
+        # Date range filter
+        from_date = request.query_params.get('from_date')
+        to_date = request.query_params.get('to_date')
+        if from_date:
+            bills = bills.filter(bill_date__gte=from_date)
+        if to_date:
+            bills = bills.filter(bill_date__lte=to_date)
+        
+        # Ordering
+        order_by = request.query_params.get('order_by', '-aging_days')
+        if order_by == '-aging_days':
+            bills = sorted(bills, key=lambda x: x.aging_days, reverse=True)
+        elif order_by == 'aging_days':
+            bills = sorted(bills, key=lambda x: x.aging_days)
+        elif order_by == '-outstanding':
+            bills = sorted(bills, key=lambda x: x.outstanding_amount, reverse=True)
+        elif order_by == 'outstanding':
+            bills = sorted(bills, key=lambda x: x.outstanding_amount)
+        else:
+            bills = bills.order_by(order_by)
+        
+        # Pagination
+        paginator = StandardResultsSetPagination()
+        page = paginator.paginate_queryset(list(bills) if not hasattr(bills, 'query') else bills, request)
+        
+        data = []
+        for bill in page:
+            data.append({
+                'id': bill.id,
+                'bill_number': bill.bill_number,
+                'bill_date': bill.bill_date,
+                'due_date': bill.due_date,
+                'consignor_id': bill.consignor_id,
+                'consignor_name': bill.consignor.name if bill.consignor else 'Unknown',
+                'consignor_gstin': bill.consignor.gstin if bill.consignor else '',
+                'branch_name': bill.branch.name if bill.branch else 'Unknown',
+                'grand_total': bill.grand_total,
+                'payments_received': bill.total_payments_received,
+                'outstanding': bill.outstanding_amount,
+                'aging_days': bill.aging_days,
+                'aging_bucket': bill.aging_bucket,
+                'payment_status': bill.payment_status,
+                'payment_status_display': bill.get_payment_status_display(),
+            })
+        
+        return paginator.get_paginated_response(data)
+
+    @action(detail=False, methods=['GET'])
+    def aging_analysis(self, request):
+        """
+        Get aging analysis with trends.
+        
+        Returns aging breakdown with historical comparison.
+        """
+        from django.db.models import Sum
+        from decimal import Decimal
+        from datetime import datetime, timedelta
+        
+        user = request.user
+        bills = Bill.objects.filter(is_deleted=False).exclude(payment_status='PAID')
+        
+        # Branch filter
+        if not user.can_access_all_branches and user.branch:
+            bills = bills.filter(branch=user.branch)
+        
+        # Current aging breakdown
+        aging_buckets = {
+            'current': {'count': 0, 'amount': Decimal('0'), 'consignors': set()},
+            '0-30': {'count': 0, 'amount': Decimal('0'), 'consignors': set()},
+            '31-60': {'count': 0, 'amount': Decimal('0'), 'consignors': set()},
+            '61-90': {'count': 0, 'amount': Decimal('0'), 'consignors': set()},
+            '90+': {'count': 0, 'amount': Decimal('0'), 'consignors': set()},
+        }
+        
+        for bill in bills:
+            bucket = bill.aging_bucket
+            if bucket in aging_buckets:
+                aging_buckets[bucket]['count'] += 1
+                aging_buckets[bucket]['amount'] += bill.outstanding_amount
+                if bill.consignor_id:
+                    aging_buckets[bucket]['consignors'].add(bill.consignor_id)
+        
+        # Convert sets to counts
+        for bucket in aging_buckets:
+            aging_buckets[bucket]['consignor_count'] = len(aging_buckets[bucket]['consignors'])
+            del aging_buckets[bucket]['consignors']
+        
+        # Calculate risk metrics
+        total_outstanding = sum(b['amount'] for b in aging_buckets.values())
+        high_risk_amount = aging_buckets['61-90']['amount'] + aging_buckets['90+']['amount']
+        high_risk_percentage = (high_risk_amount / total_outstanding * 100) if total_outstanding > 0 else 0
+        
+        # Calculate average aging days
+        total_aging = 0
+        bill_count = 0
+        for bill in bills:
+            total_aging += bill.aging_days
+            bill_count += 1
+        average_aging = (total_aging / bill_count) if bill_count > 0 else 0
+        
+        return Response({
+            'aging_buckets': aging_buckets,
+            'total_outstanding': total_outstanding,
+            'total_bills': bill_count,
+            'average_aging_days': round(average_aging, 1),
+            'high_risk_amount': high_risk_amount,
+            'high_risk_percentage': round(high_risk_percentage, 1),
+            'risk_assessment': 'HIGH' if high_risk_percentage > 30 else ('MEDIUM' if high_risk_percentage > 15 else 'LOW'),
+        })
+
+    @action(detail=False, methods=['GET'])
+    def settlement_report(self, request):
+        """
+        Get settlement/reconciliation report for a date range.
+        Shows bills issued, payments received, and collection efficiency.
+        """
+        from django.db.models import Sum, Count
+        from decimal import Decimal
+        from apps.billing.models import ClientPayment
+        
+        user = request.user
+        
+        # Date range (default: current month)
+        from_date = request.query_params.get('from_date')
+        to_date = request.query_params.get('to_date')
+        
+        if not from_date:
+            today = timezone.now().date()
+            from_date = today.replace(day=1)
+        if not to_date:
+            to_date = timezone.now().date()
+        
+        # Bills issued in date range
+        bills = Bill.objects.filter(
+            is_deleted=False,
+            bill_date__gte=from_date,
+            bill_date__lte=to_date
+        )
+        
+        # Branch filter
+        if not user.can_access_all_branches and user.branch:
+            bills = bills.filter(branch=user.branch)
+        
+        # Bills metrics
+        bills_count = bills.count()
+        amount_billed = bills.aggregate(total=Sum('grand_total'))['total'] or Decimal('0')
+        
+        # Payments received in date range
+        payments = ClientPayment.objects.filter(
+            is_deleted=False,
+            payment_date__gte=from_date,
+            payment_date__lte=to_date
+        )
+        
+        if not user.can_access_all_branches and user.branch:
+            payments = payments.filter(bill__branch=user.branch)
+        
+        payments_count = payments.count()
+        amount_collected = payments.aggregate(total=Sum('amount'))['total'] or Decimal('0')
+        
+        # Collection efficiency
+        collection_efficiency = (amount_collected / amount_billed * 100) if amount_billed > 0 else Decimal('0')
+        
+        # Payment method breakdown
+        payment_methods = {}
+        for payment in payments:
+            method = payment.payment_method or 'OTHER'
+            if method not in payment_methods:
+                payment_methods[method] = {'count': 0, 'amount': Decimal('0')}
+            payment_methods[method]['count'] += 1
+            payment_methods[method]['amount'] += payment.amount
+        
+        # Daily breakdown (for chart)
+        from datetime import datetime, timedelta
+        daily_data = []
+        current_date = datetime.strptime(str(from_date), '%Y-%m-%d').date() if isinstance(from_date, str) else from_date
+        end_date = datetime.strptime(str(to_date), '%Y-%m-%d').date() if isinstance(to_date, str) else to_date
+        
+        while current_date <= end_date:
+            day_bills = bills.filter(bill_date=current_date)
+            day_payments = payments.filter(payment_date=current_date)
+            
+            daily_data.append({
+                'date': current_date.isoformat(),
+                'billed': day_bills.aggregate(total=Sum('grand_total'))['total'] or 0,
+                'collected': day_payments.aggregate(total=Sum('amount'))['total'] or 0,
+            })
+            current_date += timedelta(days=1)
+        
+        return Response({
+            'period': {
+                'from_date': from_date,
+                'to_date': to_date,
+            },
+            'bills': {
+                'count': bills_count,
+                'amount': amount_billed,
+            },
+            'payments': {
+                'count': payments_count,
+                'amount': amount_collected,
+            },
+            'collection_efficiency': round(collection_efficiency, 1),
+            'outstanding_for_period': amount_billed - amount_collected,
+            'payment_methods': payment_methods,
+            'daily_data': daily_data,
+        })
+
+    @action(detail=False, methods=['GET'], url_path='client-statement/(?P<consignor_id>[^/.]+)')
+    def client_statement(self, request, consignor_id=None):
+        """
+        Generate client statement for a consignor.
+        Shows opening balance, transactions, and closing balance.
+        """
+        from django.db.models import Sum
+        from decimal import Decimal
+        from apps.billing.models import ClientPayment
+        from apps.masters.models import Consignor
+        
+        try:
+            consignor = Consignor.objects.get(pk=consignor_id, is_deleted=False)
+        except Consignor.DoesNotExist:
+            return Response({'error': 'Consignor not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Date range
+        from_date = request.query_params.get('from_date')
+        to_date = request.query_params.get('to_date')
+        
+        if not from_date:
+            # Default: last 3 months
+            today = timezone.now().date()
+            from_date = today - timedelta(days=90)
+        else:
+            from_date = timezone.datetime.strptime(from_date, '%Y-%m-%d').date()
+        
+        if not to_date:
+            to_date = timezone.now().date()
+        else:
+            to_date = timezone.datetime.strptime(to_date, '%Y-%m-%d').date()
+        
+        # Opening balance (outstanding before from_date)
+        bills_before = Bill.objects.filter(
+            consignor=consignor,
+            is_deleted=False,
+            bill_date__lt=from_date
+        )
+        payments_before = ClientPayment.objects.filter(
+            bill__consignor=consignor,
+            is_deleted=False,
+            payment_date__lt=from_date
+        )
+        
+        opening_billed = bills_before.aggregate(total=Sum('grand_total'))['total'] or Decimal('0')
+        opening_paid = payments_before.aggregate(total=Sum('amount'))['total'] or Decimal('0')
+        opening_balance = opening_billed - opening_paid
+        
+        # Transactions in period
+        bills_in_period = Bill.objects.filter(
+            consignor=consignor,
+            is_deleted=False,
+            bill_date__gte=from_date,
+            bill_date__lte=to_date
+        ).order_by('bill_date')
+        
+        payments_in_period = ClientPayment.objects.filter(
+            bill__consignor=consignor,
+            is_deleted=False,
+            payment_date__gte=from_date,
+            payment_date__lte=to_date
+        ).order_by('payment_date')
+        
+        # Build transaction list
+        transactions = []
+        running_balance = opening_balance
+        
+        # Add bills
+        for bill in bills_in_period:
+            running_balance += bill.grand_total
+            transactions.append({
+                'date': bill.bill_date,
+                'type': 'BILL',
+                'reference': bill.bill_number,
+                'description': f'Bill #{bill.bill_number}',
+                'debit': bill.grand_total,
+                'credit': Decimal('0'),
+                'balance': running_balance,
+            })
+        
+        # Add payments
+        for payment in payments_in_period:
+            running_balance -= payment.amount
+            transactions.append({
+                'date': payment.payment_date,
+                'type': 'PAYMENT',
+                'reference': payment.reference_number or f'PAY-{payment.id}',
+                'description': f'Payment via {payment.get_payment_method_display()} for {payment.bill.bill_number}',
+                'debit': Decimal('0'),
+                'credit': payment.amount,
+                'balance': running_balance,
+            })
+        
+        # Sort by date
+        transactions.sort(key=lambda x: x['date'])
+        
+        # Recalculate running balances after sorting
+        running_balance = opening_balance
+        for txn in transactions:
+            running_balance += txn['debit'] - txn['credit']
+            txn['balance'] = running_balance
+        
+        # Totals
+        period_billed = bills_in_period.aggregate(total=Sum('grand_total'))['total'] or Decimal('0')
+        period_paid = payments_in_period.aggregate(total=Sum('amount'))['total'] or Decimal('0')
+        closing_balance = opening_balance + period_billed - period_paid
+        
+        return Response({
+            'consignor': {
+                'id': consignor.id,
+                'name': consignor.name,
+                'gstin': consignor.gstin,
+                'pan': consignor.pan,
+                'address': consignor.address,
+                'city': consignor.city,
+                'state': consignor.state,
+            },
+            'period': {
+                'from_date': from_date,
+                'to_date': to_date,
+            },
+            'summary': {
+                'opening_balance': opening_balance,
+                'period_billed': period_billed,
+                'period_paid': period_paid,
+                'closing_balance': closing_balance,
+            },
+            'transactions': transactions,
+        })
+
+    # ============================================================
+    # EXCEL EXPORT ENDPOINTS
+    # ============================================================
+
+    @action(detail=False, methods=['GET'])
+    def export_outstanding(self, request):
+        """
+        Export outstanding bills to Excel with filters.
+        Supports: consignor, aging, payment_status, date range filters
+        """
+        import openpyxl
+        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+        from openpyxl.utils import get_column_letter
+        from django.db.models import Sum
+        
+        user = request.user
+        bills = Bill.objects.filter(is_deleted=False).exclude(payment_status='PAID')
+        
+        # Branch filter
+        if not user.can_access_all_branches and user.branch:
+            bills = bills.filter(branch=user.branch)
+        
+        # Consignor filter
+        consignor_id = request.query_params.get('consignor')
+        if consignor_id:
+            bills = bills.filter(consignor_id=consignor_id)
+        
+        # Payment status filter
+        status_filter = request.query_params.get('payment_status')
+        if status_filter:
+            bills = bills.filter(payment_status=status_filter)
+        
+        # Date range filter
+        from_date = request.query_params.get('from_date')
+        to_date = request.query_params.get('to_date')
+        if from_date:
+            bills = bills.filter(bill_date__gte=from_date)
+        if to_date:
+            bills = bills.filter(bill_date__lte=to_date)
+        
+        # Aging bucket filter (must process in Python)
+        aging_filter = request.query_params.get('aging')
+        if aging_filter:
+            filtered_ids = [b.id for b in bills if b.aging_bucket == aging_filter]
+            bills = bills.filter(id__in=filtered_ids)
+        
+        # Search filter
+        search = request.query_params.get('search')
+        if search:
+            bills = bills.filter(
+                Q(bill_number__icontains=search) |
+                Q(consignor__name__icontains=search) |
+                Q(consignor__gstin__icontains=search)
+            )
+        
+        # Order by
+        order_by = request.query_params.get('order_by', '-bill_date')
+        if order_by in ['-outstanding', 'outstanding', '-aging_days', 'aging_days']:
+            # These require Python sorting
+            reverse = order_by.startswith('-')
+            key = 'outstanding_amount' if 'outstanding' in order_by else 'aging_days'
+            bills = sorted(list(bills), key=lambda x: getattr(x, key), reverse=reverse)
+        else:
+            bills = bills.order_by(order_by)
+        
+        # Create Excel workbook
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Outstanding Bills"
+        
+        # Styles
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="3B82F6", end_color="3B82F6", fill_type="solid")
+        header_alignment = Alignment(horizontal="center", vertical="center")
+        border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        
+        # Header row
+        headers = [
+            "Bill #", "Bill Date", "Due Date", "Consignor", "GSTIN", "Branch",
+            "Grand Total", "Payments Received", "Outstanding", "Aging Days",
+            "Aging Bucket", "Payment Status"
+        ]
+        
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+            cell.border = border
+        
+        # Data rows
+        row_num = 2
+        total_grand = Decimal('0')
+        total_paid = Decimal('0')
+        total_outstanding = Decimal('0')
+        
+        for bill in bills:
+            outstanding = bill.outstanding_amount
+            total_grand += bill.grand_total
+            total_paid += bill.total_payments_received
+            total_outstanding += outstanding
+            
+            ws.cell(row=row_num, column=1, value=bill.bill_number).border = border
+            ws.cell(row=row_num, column=2, value=str(bill.bill_date) if bill.bill_date else '').border = border
+            ws.cell(row=row_num, column=3, value=str(bill.due_date) if bill.due_date else '').border = border
+            ws.cell(row=row_num, column=4, value=bill.consignor.name if bill.consignor else '').border = border
+            ws.cell(row=row_num, column=5, value=bill.consignor.gstin if bill.consignor else '').border = border
+            ws.cell(row=row_num, column=6, value=bill.branch.name if bill.branch else '').border = border
+            ws.cell(row=row_num, column=7, value=float(bill.grand_total)).border = border
+            ws.cell(row=row_num, column=8, value=float(bill.total_payments_received)).border = border
+            ws.cell(row=row_num, column=9, value=float(outstanding)).border = border
+            ws.cell(row=row_num, column=10, value=bill.aging_days).border = border
+            ws.cell(row=row_num, column=11, value=bill.aging_bucket).border = border
+            ws.cell(row=row_num, column=12, value=bill.get_payment_status_display()).border = border
+            row_num += 1
+        
+        # Total row
+        total_fill = PatternFill(start_color="F3F4F6", end_color="F3F4F6", fill_type="solid")
+        ws.cell(row=row_num, column=1, value="TOTAL").font = Font(bold=True)
+        ws.cell(row=row_num, column=7, value=float(total_grand)).font = Font(bold=True)
+        ws.cell(row=row_num, column=8, value=float(total_paid)).font = Font(bold=True)
+        ws.cell(row=row_num, column=9, value=float(total_outstanding)).font = Font(bold=True)
+        for col in range(1, 13):
+            ws.cell(row=row_num, column=col).fill = total_fill
+            ws.cell(row=row_num, column=col).border = border
+        
+        # Adjust column widths
+        column_widths = [12, 12, 12, 35, 18, 15, 15, 18, 15, 12, 12, 15]
+        for i, width in enumerate(column_widths, 1):
+            ws.column_dimensions[get_column_letter(i)].width = width
+        
+        # Save to bytes
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        # Generate filename
+        filename = f"outstanding_bills_{timezone.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        response = HttpResponse(
+            output.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+    @action(detail=False, methods=['GET'])
+    def export_aging(self, request):
+        """Export aging analysis to Excel"""
+        import openpyxl
+        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+        from openpyxl.utils import get_column_letter
+        
+        user = request.user
+        bills = Bill.objects.filter(is_deleted=False).exclude(payment_status='PAID')
+        
+        if not user.can_access_all_branches and user.branch:
+            bills = bills.filter(branch=user.branch)
+        
+        # Build aging data
+        aging_buckets = {
+            'current': {'count': 0, 'amount': Decimal('0'), 'consignors': {}},
+            '0-30': {'count': 0, 'amount': Decimal('0'), 'consignors': {}},
+            '31-60': {'count': 0, 'amount': Decimal('0'), 'consignors': {}},
+            '61-90': {'count': 0, 'amount': Decimal('0'), 'consignors': {}},
+            '90+': {'count': 0, 'amount': Decimal('0'), 'consignors': {}},
+        }
+        
+        for bill in bills:
+            bucket = bill.aging_bucket
+            if bucket in aging_buckets:
+                aging_buckets[bucket]['count'] += 1
+                aging_buckets[bucket]['amount'] += bill.outstanding_amount
+                c_name = bill.consignor.name if bill.consignor else 'Unknown'
+                if c_name not in aging_buckets[bucket]['consignors']:
+                    aging_buckets[bucket]['consignors'][c_name] = {'count': 0, 'amount': Decimal('0')}
+                aging_buckets[bucket]['consignors'][c_name]['count'] += 1
+                aging_buckets[bucket]['consignors'][c_name]['amount'] += bill.outstanding_amount
+        
+        # Create Excel
+        wb = openpyxl.Workbook()
+        
+        # Summary sheet
+        ws = wb.active
+        ws.title = "Summary"
+        
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="3B82F6", end_color="3B82F6", fill_type="solid")
+        border = Border(
+            left=Side(style='thin'), right=Side(style='thin'),
+            top=Side(style='thin'), bottom=Side(style='thin')
+        )
+        
+        # Summary headers
+        headers = ["Aging Bucket", "Bill Count", "Outstanding Amount", "% of Total"]
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = border
+        
+        total_outstanding = sum(b['amount'] for b in aging_buckets.values())
+        row = 2
+        for bucket_name, data in aging_buckets.items():
+            pct = (data['amount'] / total_outstanding * 100) if total_outstanding > 0 else 0
+            ws.cell(row=row, column=1, value=bucket_name).border = border
+            ws.cell(row=row, column=2, value=data['count']).border = border
+            ws.cell(row=row, column=3, value=float(data['amount'])).border = border
+            ws.cell(row=row, column=4, value=f"{pct:.1f}%").border = border
+            row += 1
+        
+        # Total row
+        ws.cell(row=row, column=1, value="TOTAL").font = Font(bold=True)
+        ws.cell(row=row, column=2, value=sum(b['count'] for b in aging_buckets.values())).font = Font(bold=True)
+        ws.cell(row=row, column=3, value=float(total_outstanding)).font = Font(bold=True)
+        ws.cell(row=row, column=4, value="100%").font = Font(bold=True)
+        
+        ws.column_dimensions['A'].width = 15
+        ws.column_dimensions['B'].width = 12
+        ws.column_dimensions['C'].width = 20
+        ws.column_dimensions['D'].width = 12
+        
+        # Detailed sheet - by consignor
+        ws2 = wb.create_sheet("By Consignor")
+        headers = ["Consignor", "Aging Bucket", "Bill Count", "Outstanding"]
+        for col, header in enumerate(headers, 1):
+            cell = ws2.cell(row=1, column=col, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = border
+        
+        row = 2
+        for bucket_name, data in aging_buckets.items():
+            for consignor, c_data in data['consignors'].items():
+                ws2.cell(row=row, column=1, value=consignor).border = border
+                ws2.cell(row=row, column=2, value=bucket_name).border = border
+                ws2.cell(row=row, column=3, value=c_data['count']).border = border
+                ws2.cell(row=row, column=4, value=float(c_data['amount'])).border = border
+                row += 1
+        
+        ws2.column_dimensions['A'].width = 35
+        ws2.column_dimensions['B'].width = 15
+        ws2.column_dimensions['C'].width = 12
+        ws2.column_dimensions['D'].width = 18
+        
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        filename = f"aging_analysis_{timezone.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        response = HttpResponse(
+            output.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+    @action(detail=False, methods=['GET'])
+    def export_settlement(self, request):
+        """Export settlement report to Excel"""
+        import openpyxl
+        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+        from django.db.models import Sum
+        from apps.billing.models import ClientPayment
+        
+        user = request.user
+        
+        # Date range
+        from_date = request.query_params.get('from_date')
+        to_date = request.query_params.get('to_date')
+        
+        if not from_date:
+            today = timezone.now().date()
+            from_date = today.replace(day=1)
+        if not to_date:
+            to_date = timezone.now().date()
+        
+        # Bills and payments
+        bills = Bill.objects.filter(
+            is_deleted=False,
+            bill_date__gte=from_date,
+            bill_date__lte=to_date
+        )
+        payments = ClientPayment.objects.filter(
+            is_deleted=False,
+            payment_date__gte=from_date,
+            payment_date__lte=to_date
+        )
+        
+        if not user.can_access_all_branches and user.branch:
+            bills = bills.filter(branch=user.branch)
+            payments = payments.filter(bill__branch=user.branch)
+        
+        # Create Excel
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Settlement Report"
+        
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="10B981", end_color="10B981", fill_type="solid")
+        border = Border(
+            left=Side(style='thin'), right=Side(style='thin'),
+            top=Side(style='thin'), bottom=Side(style='thin')
+        )
+        
+        # Summary section
+        ws.cell(row=1, column=1, value="SETTLEMENT REPORT").font = Font(bold=True, size=14)
+        ws.cell(row=2, column=1, value=f"Period: {from_date} to {to_date}")
+        
+        total_billed = bills.aggregate(total=Sum('grand_total'))['total'] or Decimal('0')
+        total_collected = payments.aggregate(total=Sum('amount'))['total'] or Decimal('0')
+        efficiency = (total_collected / total_billed * 100) if total_billed > 0 else 0
+        
+        ws.cell(row=4, column=1, value="Bills Raised:")
+        ws.cell(row=4, column=2, value=bills.count())
+        ws.cell(row=4, column=3, value=float(total_billed))
+        
+        ws.cell(row=5, column=1, value="Payments Received:")
+        ws.cell(row=5, column=2, value=payments.count())
+        ws.cell(row=5, column=3, value=float(total_collected))
+        
+        ws.cell(row=6, column=1, value="Collection Efficiency:")
+        ws.cell(row=6, column=2, value=f"{efficiency:.1f}%")
+        
+        # Bills section
+        ws.cell(row=8, column=1, value="BILLS RAISED").font = Font(bold=True)
+        headers = ["Bill #", "Date", "Consignor", "Amount"]
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=9, column=col, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = border
+        
+        row = 10
+        for bill in bills.order_by('-bill_date'):
+            ws.cell(row=row, column=1, value=bill.bill_number).border = border
+            ws.cell(row=row, column=2, value=str(bill.bill_date)).border = border
+            ws.cell(row=row, column=3, value=bill.consignor.name if bill.consignor else '').border = border
+            ws.cell(row=row, column=4, value=float(bill.grand_total)).border = border
+            row += 1
+        
+        # Payments section
+        row += 2
+        ws.cell(row=row, column=1, value="PAYMENTS RECEIVED").font = Font(bold=True)
+        row += 1
+        headers = ["Date", "Bill #", "Consignor", "Method", "Reference", "Amount"]
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=row, column=col, value=header)
+            cell.font = header_font
+            cell.fill = PatternFill(start_color="3B82F6", end_color="3B82F6", fill_type="solid")
+            cell.border = border
+        
+        row += 1
+        for payment in payments.order_by('-payment_date'):
+            ws.cell(row=row, column=1, value=str(payment.payment_date)).border = border
+            ws.cell(row=row, column=2, value=payment.bill.bill_number).border = border
+            ws.cell(row=row, column=3, value=payment.bill.consignor.name if payment.bill.consignor else '').border = border
+            ws.cell(row=row, column=4, value=payment.get_payment_method_display()).border = border
+            ws.cell(row=row, column=5, value=payment.reference_number or '').border = border
+            ws.cell(row=row, column=6, value=float(payment.amount)).border = border
+            row += 1
+        
+        # Column widths
+        ws.column_dimensions['A'].width = 15
+        ws.column_dimensions['B'].width = 12
+        ws.column_dimensions['C'].width = 35
+        ws.column_dimensions['D'].width = 15
+        ws.column_dimensions['E'].width = 18
+        ws.column_dimensions['F'].width = 15
+        
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        filename = f"settlement_report_{from_date}_{to_date}.xlsx"
+        response = HttpResponse(
+            output.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+    @action(detail=False, methods=['GET'], url_path='export-client-statement/(?P<consignor_id>[^/.]+)')
+    def export_client_statement(self, request, consignor_id=None):
+        """Export client statement to Excel"""
+        import openpyxl
+        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+        from django.db.models import Sum
+        from apps.billing.models import ClientPayment
+        from apps.masters.models import Consignor
+        
+        try:
+            consignor = Consignor.objects.get(pk=consignor_id, is_deleted=False)
+        except Consignor.DoesNotExist:
+            return Response({'error': 'Consignor not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Date range
+        from_date = request.query_params.get('from_date')
+        to_date = request.query_params.get('to_date')
+        
+        if not from_date:
+            today = timezone.now().date()
+            from_date = today - timedelta(days=90)
+        else:
+            from_date = timezone.datetime.strptime(from_date, '%Y-%m-%d').date()
+        
+        if not to_date:
+            to_date = timezone.now().date()
+        else:
+            to_date = timezone.datetime.strptime(to_date, '%Y-%m-%d').date()
+        
+        # Opening balance
+        bills_before = Bill.objects.filter(
+            consignor=consignor, is_deleted=False, bill_date__lt=from_date
+        )
+        payments_before = ClientPayment.objects.filter(
+            bill__consignor=consignor, is_deleted=False, payment_date__lt=from_date
+        )
+        
+        opening_billed = bills_before.aggregate(total=Sum('grand_total'))['total'] or Decimal('0')
+        opening_paid = payments_before.aggregate(total=Sum('amount'))['total'] or Decimal('0')
+        opening_balance = opening_billed - opening_paid
+        
+        # Transactions
+        bills_in_period = Bill.objects.filter(
+            consignor=consignor, is_deleted=False,
+            bill_date__gte=from_date, bill_date__lte=to_date
+        ).order_by('bill_date')
+        
+        payments_in_period = ClientPayment.objects.filter(
+            bill__consignor=consignor, is_deleted=False,
+            payment_date__gte=from_date, payment_date__lte=to_date
+        ).order_by('payment_date')
+        
+        # Create Excel
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Statement"
+        
+        header_font = Font(bold=True, color="FFFFFF")
+        border = Border(
+            left=Side(style='thin'), right=Side(style='thin'),
+            top=Side(style='thin'), bottom=Side(style='thin')
+        )
+        
+        # Header
+        ws.cell(row=1, column=1, value="CLIENT STATEMENT").font = Font(bold=True, size=14)
+        ws.cell(row=2, column=1, value=consignor.name).font = Font(bold=True)
+        ws.cell(row=3, column=1, value=f"GSTIN: {consignor.gstin or 'N/A'}")
+        ws.cell(row=4, column=1, value=f"Period: {from_date} to {to_date}")
+        
+        # Summary
+        period_billed = bills_in_period.aggregate(total=Sum('grand_total'))['total'] or Decimal('0')
+        period_paid = payments_in_period.aggregate(total=Sum('amount'))['total'] or Decimal('0')
+        closing_balance = opening_balance + period_billed - period_paid
+        
+        ws.cell(row=6, column=1, value="Opening Balance:")
+        ws.cell(row=6, column=2, value=float(opening_balance))
+        ws.cell(row=7, column=1, value="Bills Raised:")
+        ws.cell(row=7, column=2, value=float(period_billed))
+        ws.cell(row=8, column=1, value="Payments Received:")
+        ws.cell(row=8, column=2, value=float(period_paid))
+        ws.cell(row=9, column=1, value="Closing Balance:").font = Font(bold=True)
+        ws.cell(row=9, column=2, value=float(closing_balance)).font = Font(bold=True)
+        
+        # Transactions
+        headers = ["Date", "Type", "Reference", "Description", "Debit", "Credit", "Balance"]
+        header_fill = PatternFill(start_color="3B82F6", end_color="3B82F6", fill_type="solid")
+        
+        row = 11
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=row, column=col, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = border
+        
+        row += 1
+        ws.cell(row=row, column=1, value="Opening Balance")
+        ws.cell(row=row, column=7, value=float(opening_balance))
+        running_balance = opening_balance
+        row += 1
+        
+        # Build and sort transactions
+        transactions = []
+        for bill in bills_in_period:
+            transactions.append({
+                'date': bill.bill_date,
+                'type': 'BILL',
+                'reference': bill.bill_number,
+                'description': f'Bill #{bill.bill_number}',
+                'debit': bill.grand_total,
+                'credit': Decimal('0'),
+            })
+        
+        for payment in payments_in_period:
+            transactions.append({
+                'date': payment.payment_date,
+                'type': 'PAYMENT',
+                'reference': payment.reference_number or f'PAY-{payment.id}',
+                'description': f'Payment - {payment.get_payment_method_display()}',
+                'debit': Decimal('0'),
+                'credit': payment.amount,
+            })
+        
+        transactions.sort(key=lambda x: x['date'])
+        
+        for txn in transactions:
+            running_balance += txn['debit'] - txn['credit']
+            ws.cell(row=row, column=1, value=str(txn['date'])).border = border
+            ws.cell(row=row, column=2, value=txn['type']).border = border
+            ws.cell(row=row, column=3, value=txn['reference']).border = border
+            ws.cell(row=row, column=4, value=txn['description']).border = border
+            ws.cell(row=row, column=5, value=float(txn['debit']) if txn['debit'] else '').border = border
+            ws.cell(row=row, column=6, value=float(txn['credit']) if txn['credit'] else '').border = border
+            ws.cell(row=row, column=7, value=float(running_balance)).border = border
+            row += 1
+        
+        # Closing row
+        ws.cell(row=row, column=1, value="Closing Balance").font = Font(bold=True)
+        ws.cell(row=row, column=7, value=float(closing_balance)).font = Font(bold=True)
+        
+        # Column widths
+        ws.column_dimensions['A'].width = 12
+        ws.column_dimensions['B'].width = 10
+        ws.column_dimensions['C'].width = 15
+        ws.column_dimensions['D'].width = 35
+        ws.column_dimensions['E'].width = 12
+        ws.column_dimensions['F'].width = 12
+        ws.column_dimensions['G'].width = 15
+        
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        filename = f"statement_{consignor.name.replace(' ', '_')}_{from_date}_{to_date}.xlsx"
+        response = HttpResponse(
+            output.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
 
 

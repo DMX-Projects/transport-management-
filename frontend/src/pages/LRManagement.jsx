@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
     useGetLRsQuery, 
     useCreateLRMutation, 
@@ -26,6 +27,7 @@ import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import CreateMultipleLRsModal from './CreateMultipleLRsModal';
 
 export default function LRManagement() {
+    const navigate = useNavigate();
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [selectedLR, setSelectedLR] = useState(null);
@@ -147,7 +149,8 @@ export default function LRManagement() {
 
                 <button
                     className="btn btn-primary"
-                    onClick={() => setShowCreateModal(true)}
+                    onClick={() => navigate('/lr/create')}
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
                 >
                     <PlusIcon style={{ width: '20px', height: '20px' }} />
                     Create LR
@@ -385,10 +388,7 @@ export default function LRManagement() {
                                                 </button>
                                                 {canEdit && (
                                                     <button
-                                                        onClick={() => {
-                                                            setSelectedLR(lr);
-                                                            setShowEditModal(true);
-                                                        }}
+                                                        onClick={() => navigate(`/lr/edit/${lr.id}`)}
                                                         style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#6366f1' }}
                                                         title="Edit LR"
                                                     >
