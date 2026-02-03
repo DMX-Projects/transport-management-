@@ -1,0 +1,19 @@
+[Unit]
+Description=Celery Worker for Transport Management Backend
+After=network.target redis.service
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/transport-management-/backend
+Environment="PATH=/home/ubuntu/transport-management-/backend/env/bin:/usr/local/bin:/usr/bin:/bin"
+
+ExecStart=/home/ubuntu/transport-management-/backend/env/bin/celery -A transport_erp worker \
+    --loglevel=info \
+    --logfile=/var/www/transportmanagemnt/logs/celery_worker.log
+
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target
