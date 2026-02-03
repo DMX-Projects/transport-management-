@@ -5,8 +5,8 @@ After=network.target
 [Service]
 User=ubuntu
 Group=ubuntu
-WorkingDirectory=/home/ubuntu/transport-management/backend
-Environment="PATH=/home/ubuntu/transport-management/backend/env/bin:/usr/local/bin:/usr/bin:/bin"
+WorkingDirectory=/home/ubuntu/transport-management-/backend
+Environment="PATH=/home/ubuntu/transport-management-/backend/env/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="DEBUG=False"
 Environment="SECRET_KEY=your-secret-key-change-in-production"
 Environment="ALLOWED_HOSTS=103.65.21.176,localhost,127.0.0.1"
@@ -17,7 +17,7 @@ Environment="CELERY_RESULT_BACKEND=redis://localhost:6379/2"
 Environment="CORS_ALLOW_ALL=False"
 
 # Use python -m gunicorn to ensure it works even if gunicorn script is missing
-ExecStart=/home/ubuntu/transport-management/backend/env/bin/python -m gunicorn \
+ExecStart=/home/ubuntu/transport-management-/backend/env/bin/python -m gunicorn \
     --workers 3 \
     --bind 127.0.0.1:8004 \
     --timeout 120 \
