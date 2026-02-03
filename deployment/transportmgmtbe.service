@@ -1,0 +1,33 @@
+[Unit]
+Description=Gunicorn daemon for Transport Management Backend
+After=network.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/transport-management/backend
+Environment="PATH=/home/ubuntu/transport-management/backend/env/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="DEBUG=False"
+Environment="SECRET_KEY=your-secret-key-change-in-production"
+Environment="ALLOWED_HOSTS=103.65.21.176,localhost,127.0.0.1"
+Environment="STATIC_ROOT=/var/www/transportmanagemnt/staticfiles"
+Environment="MEDIA_ROOT=/var/www/transportmanagemnt/media"
+Environment="CELERY_BROKER_URL=redis://localhost:6379/2"
+Environment="CELERY_RESULT_BACKEND=redis://localhost:6379/2"
+Environment="CORS_ALLOW_ALL=False"
+
+# Use python -m gunicorn to ensure it works even if gunicorn script is missing
+ExecStart=/home/ubuntu/transport-management/backend/env/bin/python -m gunicorn \
+    --workers 3 \
+    --bind 127.0.0.1:8004 \
+    --timeout 120 \
+    --access-logfile /var/www/transportmanagemnt/logs/gunicorn_access.log \
+    --error-logfile /var/www/transportmanagemnt/logs/gunicorn_error.log \
+    --log-level info \
+    transport_erp.wsgi:application
+
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
