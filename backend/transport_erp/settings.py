@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'apps.payments',
     'apps.pod',
     'apps.reports',
+    'apps.transactions',
     # These will be added as they are developed:
     # 'apps.receipts',
     # 'apps.accounting',
