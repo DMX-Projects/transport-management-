@@ -350,6 +350,14 @@ function CreatePODModal({ onClose, onSubmit, isLoading }) {
         quantity_received_mt: '',
         number_of_bags_received: '',
         goods_condition: 'GOOD',
+        // Shortage tracking
+        shortage_quantity_mt: '',
+        shortage_bags: '',
+        shortage_reason: '',
+        // Damage tracking
+        damage_quantity_mt: '',
+        damage_bags: '',
+        damage_description: '',
         delivery_remarks: '',
         consignee_remarks: '',
         status: 'RECEIVED',
@@ -565,6 +573,52 @@ function CreatePODModal({ onClose, onSubmit, isLoading }) {
                                 <option value="EXCESS">Excess Delivery</option>
                             </select>
                         </div>
+
+                        {/* Shortage Details - Show if SHORT selected */}
+                        {(formData.goods_condition === 'SHORT' || formData.shortage_quantity_mt > 0 || formData.shortage_bags > 0) && (
+                            <div style={{ gridColumn: '1 / -1', background: '#fef3c7', padding: '16px', borderRadius: '8px', marginTop: '8px' }}>
+                                <h4 style={{ fontSize: '14px', fontWeight: 600, color: '#92400e', marginBottom: '12px' }}>
+                                    Shortage Details
+                                </h4>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+                                    <div>
+                                        <label style={{ fontSize: '13px', color: '#374151', display: 'block', marginBottom: '4px' }}>Shortage (MT)</label>
+                                        <input type="number" step="0.01" name="shortage_quantity_mt" className="input" onChange={handleChange} value={formData.shortage_quantity_mt} placeholder="0.00" />
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '13px', color: '#374151', display: 'block', marginBottom: '4px' }}>Shortage (Bags)</label>
+                                        <input type="number" name="shortage_bags" className="input" onChange={handleChange} value={formData.shortage_bags} placeholder="0" />
+                                    </div>
+                                    <div style={{ gridColumn: '1 / -1' }}>
+                                        <label style={{ fontSize: '13px', color: '#374151', display: 'block', marginBottom: '4px' }}>Shortage Reason</label>
+                                        <input type="text" name="shortage_reason" className="input" onChange={handleChange} value={formData.shortage_reason} placeholder="Reason for shortage..." />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Damage Details - Show if DAMAGED selected */}
+                        {(formData.goods_condition === 'DAMAGED' || formData.damage_quantity_mt > 0 || formData.damage_bags > 0) && (
+                            <div style={{ gridColumn: '1 / -1', background: '#fee2e2', padding: '16px', borderRadius: '8px', marginTop: '8px' }}>
+                                <h4 style={{ fontSize: '14px', fontWeight: 600, color: '#991b1b', marginBottom: '12px' }}>
+                                    Damage Details
+                                </h4>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+                                    <div>
+                                        <label style={{ fontSize: '13px', color: '#374151', display: 'block', marginBottom: '4px' }}>Damaged (MT)</label>
+                                        <input type="number" step="0.01" name="damage_quantity_mt" className="input" onChange={handleChange} value={formData.damage_quantity_mt} placeholder="0.00" />
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '13px', color: '#374151', display: 'block', marginBottom: '4px' }}>Damaged (Bags)</label>
+                                        <input type="number" name="damage_bags" className="input" onChange={handleChange} value={formData.damage_bags} placeholder="0" />
+                                    </div>
+                                    <div style={{ gridColumn: '1 / -1' }}>
+                                        <label style={{ fontSize: '13px', color: '#374151', display: 'block', marginBottom: '4px' }}>Damage Description</label>
+                                        <textarea name="damage_description" className="input" onChange={handleChange} value={formData.damage_description} rows="2" placeholder="Describe the damage..." />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Status */}
                         <div>

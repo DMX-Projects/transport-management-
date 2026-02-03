@@ -21,6 +21,7 @@ urlpatterns = [
     path('api/v1/dashboard/', include('apps.dashboard.urls')),
     path('api/v1/payments/', include('apps.payments.urls')),
     path('api/v1/reports/', include('apps.reports.urls')),
+    path('api/v1/transactions/', include('apps.transactions.urls')),
     # path('api/v1/receipts/', include('apps.receipts.urls')),  # To be added
     # path('api/v1/accounting/', include('apps.accounting.urls')),  # To be added
     

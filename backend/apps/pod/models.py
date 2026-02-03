@@ -72,6 +72,36 @@ class ProofOfDelivery(BaseModel):
         help_text='Number of bags received (for verification)'
     )
     
+    # Shortage/Excess Tracking
+    shortage_quantity_mt = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+        help_text='Shortage quantity in MT (if any)'
+    )
+    shortage_bags = models.IntegerField(
+        default=0,
+        validators=[MinValueValidator(0)],
+        help_text='Shortage in number of bags'
+    )
+    shortage_reason = models.TextField(blank=True, help_text='Reason for shortage')
+    
+    # Damage Tracking
+    damage_quantity_mt = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+        help_text='Damaged quantity in MT'
+    )
+    damage_bags = models.IntegerField(
+        default=0,
+        validators=[MinValueValidator(0)],
+        help_text='Number of damaged bags'
+    )
+    damage_description = models.TextField(blank=True, help_text='Description of damage')
+    
     # Condition and Remarks
     goods_condition = models.CharField(
         max_length=50,

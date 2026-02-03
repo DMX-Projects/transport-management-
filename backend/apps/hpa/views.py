@@ -642,3 +642,109 @@ class ActiveHPAViewSet(viewsets.ReadOnlyModelViewSet):
         
         return Response(data)
 
+
+class HPATransactionViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for HPA Transaction Management
+    Provides full CRUD operations for payment transactions
+    Replaces the old PaymentTransaction model
+    """
+    queryset = HPATransaction.objects.filter(is_deleted=False)
+    serializer_class = HPATransactionSerializer
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['branch', 'hpa', 'transaction_type', 'payment_mode', 'transaction_date']
+    search_fields = ['transaction_number', 'hpa__hpa_number', 'pump_name', 'reference_number', 'description', 'remarks']
+    ordering_fields = ['transaction_date', 'amount', 'created_at']
+    ordering = ['-transaction_date', '-created_at']
+    
+    def get_queryset(self):
+        """Filter by branch based on user permissions"""
+        queryset = super().get_queryset()
+        user = self.request.user
+        
+        # SUPER_ADMIN can see all branches
+        if user.can_access_all_branches:
+            return queryset
+        
+        # BRANCH_MANAGER can only see their branch data
+        if user.branch:
+            return queryset.filter(branch=user.branch)
+        
+        # No branch assigned - return empty
+        return queryset.none()
+    
+    def get_serializer_class(self):
+        """Use different serializer for create"""
+        if self.action == 'create':
+            return HPATransactionCreateSerializer
+        return HPATransactionSerializer
+    
+    def perform_create(self, serializer):
+        """Create transaction with user context"""
+        hpa = serializer.validated_data['hpa']
+        serializer.save(
+            branch=hpa.branch,
+            created_by=self.request.user,
+            updated_by=self.request.user
+        )
+    
+    def perform_update(self, serializer):
+        """Update transaction with user context"""
+        serializer.save(updated_by=self.request.user)
+    
+    @action(detail=False, methods=['GET'])
+    def summary(self, request):
+        """Get transaction summary statistics"""
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        # Calculate totals by transaction type
+        summary = {}
+        for txn_type, txn_label in HPATransaction.TRANSACTION_TYPE_CHOICES:
+            total = queryset.filter(transaction_type=txn_type).aggregate(
+                total=Sum('amount')
+            )['total'] or Decimal('0.00')
+            summary[txn_type] = {
+                'label': txn_label,
+                'total': float(total),
+                'count': queryset.filter(transaction_type=txn_type).count()
+            }
+        
+        # Grand totals
+        grand_total = queryset.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        total_count = queryset.count()
+        
+        return Response({
+            'by_type': summary,
+            'grand_total': float(grand_total),
+            'total_count': total_count
+        })
+    
+    @action(detail=False, methods=['GET'])
+    def by_hpa(self, request):
+        """Get all transactions for a specific HPA"""
+        hpa_id = request.query_params.get('hpa_id')
+        if not hpa_id:
+            return Response(
+                {'error': 'hpa_id parameter is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        queryset = self.filter_queryset(self.get_queryset()).filter(hpa_id=hpa_id)
+        serializer = self.get_serializer(queryset, many=True)
+        
+        # Calculate totals for this HPA
+        totals = {
+            'advance_total': sum(t.amount for t in queryset if t.transaction_type == 'ADVANCE'),
+            'diesel_total': sum(t.amount for t in queryset if t.transaction_type == 'DIESEL'),
+            'bank_total': sum(t.amount for t in queryset if t.transaction_type == 'BANK'),
+            'extra_total': sum(t.amount for t in queryset if t.transaction_type == 'EXTRA'),
+            'other_total': sum(t.amount for t in queryset if t.transaction_type == 'OTHER'),
+            'total': sum(t.amount for t in queryset),
+        }
+        
+        return Response({
+            'transactions': serializer.data,
+            'totals': totals
+        })
+

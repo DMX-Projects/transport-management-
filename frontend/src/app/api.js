@@ -94,6 +94,6 @@ const baseQueryWithTokenRefresh = async (args, api, extraOptions) => {
 export const api = createApi({
     reducerPath: 'api',
     baseQuery: baseQueryWithTokenRefresh,
-    tagTypes: ['User', 'Company', 'Branch', 'Consignor', 'Party', 'Truck', 'LR', 'HPA', 'POD', 'Bill', 'Payment', 'Dashboard', 'Receipt', 'Report'],
+    tagTypes: ['User', 'Company', 'Branch', 'Consignor', 'Party', 'Truck', 'LR', 'HPA', 'POD', 'Bill', 'Payment', 'Dashboard', 'Receipt', 'Report', 'PaymentTransaction', 'HPALRLink', 'HPATransaction'],
     endpoints: () => ({}),
 });

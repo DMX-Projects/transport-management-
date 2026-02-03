@@ -1708,4 +1708,285 @@ class ReportsViewSet(viewsets.ViewSet):
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
 
+    # ============================================================
+    # PHASE 5 ADDITIONS: Truck Statement & LR-HPA Mapping Reports
+    # ============================================================
 
+    @action(detail=False, methods=['GET'], url_path='truck-statement/(?P<truck_id>[^/.]+)')
+    def truck_statement(self, request, truck_id=None):
+        """
+        Get complete statement for a specific truck.
+        Shows all HPAs, payments, and running balance.
+        
+        Query params:
+        - from_date: Start date (YYYY-MM-DD)
+        - to_date: End date (YYYY-MM-DD)
+        """
+        from apps.masters.models import Truck
+        from apps.transactions.models import PaymentTransaction
+        
+        user = request.user
+        
+        try:
+            truck = Truck.objects.get(id=truck_id, is_deleted=False)
+        except Truck.DoesNotExist:
+            return Response({'error': 'Truck not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Get date range
+        from_date = request.query_params.get('from_date')
+        to_date = request.query_params.get('to_date', timezone.now().date().isoformat())
+        
+        if not from_date:
+            # Default to last 3 months
+            from_date = (timezone.now() - timedelta(days=90)).date().isoformat()
+        
+        # Get all HPAs for this truck
+        hpas = HirePaymentAdvice.objects.filter(
+            truck=truck,
+            hpa_date__gte=from_date,
+            hpa_date__lte=to_date
+        ).order_by('hpa_date', 'created_at')
+        
+        # Branch isolation
+        if not user.can_access_all_branches and user.branch:
+            hpas = hpas.filter(branch=user.branch)
+        
+        # Get all payment transactions for these HPAs
+        hpa_ids = list(hpas.values_list('id', flat=True))
+        payments = PaymentTransaction.objects.filter(
+            hpa_id__in=hpa_ids
+        ).order_by('payment_date', 'created_at')
+        
+        # Build statement
+        transactions = []
+        
+        # Add HPAs as freight charges (amount owed to truck)
+        for hpa in hpas:
+            transactions.append({
+                'date': hpa.hpa_date.isoformat(),
+                'type': 'HPA',
+                'reference': hpa.hpa_number,
+                'description': f"HPA {hpa.hpa_number} - {hpa.from_location} → {hpa.to_location}",
+                'lorry_hire': float(hpa.lorry_hire_rs or 0),
+                'advance': float(hpa.less_advance or 0),
+                'diesel': float(hpa.diesel_amount or 0),
+                'bank': float(hpa.bank_amount or 0),
+                'balance': float(hpa.balance_rs or 0),
+                'status': hpa.payment_status
+            })
+        
+        # Add detailed payment transactions
+        for payment in payments:
+            transactions.append({
+                'date': payment.payment_date.isoformat(),
+                'type': 'PAYMENT',
+                'payment_type': payment.payment_type,
+                'reference': payment.reference_number or '',
+                'description': f"{payment.get_payment_type_display()} - {payment.hpa.hpa_number}",
+                'amount': float(payment.amount),
+                'pump_name': payment.pump_name or '',
+                'bank_name': payment.bank_name or ''
+            })
+        
+        # Calculate totals
+        total_lorry_hire = sum([float(h.lorry_hire_rs or 0) for h in hpas])
+        total_advance = sum([float(h.less_advance or 0) for h in hpas])
+        total_diesel = sum([float(h.diesel_amount or 0) for h in hpas])
+        total_bank = sum([float(h.bank_amount or 0) for h in hpas])
+        total_balance = sum([float(h.balance_rs or 0) for h in hpas])
+        total_paid = total_advance + total_diesel + total_bank
+        
+        return Response({
+            'truck': {
+                'id': truck.id,
+                'truck_number': truck.truck_number,
+                'owner_name': truck.owner_name,
+                'driver_name': truck.driver_name
+            },
+            'period': {
+                'from_date': from_date,
+                'to_date': to_date
+            },
+            'summary': {
+                'total_hpas': hpas.count(),
+                'total_lorry_hire': total_lorry_hire,
+                'total_advance': total_advance,
+                'total_diesel': total_diesel,
+                'total_bank': total_bank,
+                'total_paid': total_paid,
+                'total_balance': total_balance
+            },
+            'transactions': transactions
+        })
+
+    @action(detail=False, methods=['GET'])
+    def lr_hpa_mapping(self, request):
+        """
+        Get LR to HPA mapping report.
+        Shows which LRs are linked to which HPAs.
+        
+        Query params:
+        - from_date: Start date
+        - to_date: End date
+        - status: LR status filter
+        - has_hpa: true/false - filter LRs with/without HPA
+        """
+        user = request.user
+        
+        # Date range
+        from_date = request.query_params.get('from_date')
+        to_date = request.query_params.get('to_date')
+        has_hpa = request.query_params.get('has_hpa')
+        lr_status = request.query_params.get('status')
+        
+        # Base queryset
+        lrs = LorryReceipt.objects.filter(is_deleted=False).select_related(
+            'branch', 'truck', 'consignor', 'consignee'
+        ).prefetch_related('primary_hpas', 'additional_hpas')
+        
+        # Branch isolation
+        if not user.can_access_all_branches and user.branch:
+            lrs = lrs.filter(branch=user.branch)
+        
+        # Apply filters
+        if from_date:
+            lrs = lrs.filter(lr_date__gte=from_date)
+        if to_date:
+            lrs = lrs.filter(lr_date__lte=to_date)
+        if lr_status:
+            lrs = lrs.filter(status=lr_status)
+        
+        # Filter by HPA status
+        if has_hpa == 'true':
+            lrs = lrs.filter(
+                Q(primary_hpas__isnull=False) | Q(additional_hpas__isnull=False)
+            ).distinct()
+        elif has_hpa == 'false':
+            lrs = lrs.exclude(
+                Q(primary_hpas__isnull=False) | Q(additional_hpas__isnull=False)
+            )
+        
+        # Build mapping data
+        mapping = []
+        for lr in lrs:
+            # Get linked HPAs
+            hpas = list(lr.primary_hpas.filter(is_deleted=False))
+            hpas.extend(list(lr.additional_hpas.filter(is_deleted=False)))
+            
+            mapping.append({
+                'lr_id': lr.id,
+                'lr_number': lr.lr_number,
+                'lr_date': lr.lr_date.isoformat() if lr.lr_date else None,
+                'truck_number': lr.truck.truck_number if lr.truck else None,
+                'consignor': lr.consignor.name if lr.consignor else None,
+                'consignee': lr.consignee.name if lr.consignee else None,
+                'from_location': lr.from_location,
+                'to_location': lr.to_location,
+                'quantity_mt': float(lr.quantity_mt or 0),
+                'status': lr.status,
+                'has_hpa': len(hpas) > 0,
+                'hpa_count': len(hpas),
+                'hpas': [{
+                    'hpa_id': hpa.id,
+                    'hpa_number': hpa.hpa_number,
+                    'hpa_date': hpa.hpa_date.isoformat() if hpa.hpa_date else None,
+                    'lorry_hire': float(hpa.lorry_hire_rs or 0),
+                    'payment_status': hpa.payment_status
+                } for hpa in hpas]
+            })
+        
+        # Summary
+        total_lrs = len(mapping)
+        lrs_with_hpa = sum(1 for m in mapping if m['has_hpa'])
+        lrs_without_hpa = total_lrs - lrs_with_hpa
+        
+        return Response({
+            'summary': {
+                'total_lrs': total_lrs,
+                'lrs_with_hpa': lrs_with_hpa,
+                'lrs_without_hpa': lrs_without_hpa,
+                'coverage_percentage': round((lrs_with_hpa / total_lrs * 100) if total_lrs > 0 else 0, 2)
+            },
+            'mapping': mapping
+        })
+
+    @action(detail=False, methods=['GET'])
+    def pending_truck_payments(self, request):
+        """
+        Get all HPAs with pending payments (balance > 0).
+        
+        Query params:
+        - from_date: Start date
+        - to_date: End date
+        - truck_id: Filter by specific truck
+        - min_balance: Minimum balance amount
+        """
+        user = request.user
+        
+        # Date range
+        from_date = request.query_params.get('from_date')
+        to_date = request.query_params.get('to_date')
+        truck_id = request.query_params.get('truck_id')
+        min_balance = request.query_params.get('min_balance', 0)
+        
+        # Base queryset - HPAs with balance > 0
+        hpas = HirePaymentAdvice.objects.filter(
+            balance_rs__gt=min_balance
+        ).select_related('branch', 'truck', 'lr').order_by('-balance_rs')
+        
+        # Branch isolation
+        if not user.can_access_all_branches and user.branch:
+            hpas = hpas.filter(branch=user.branch)
+        
+        # Apply filters
+        if from_date:
+            hpas = hpas.filter(hpa_date__gte=from_date)
+        if to_date:
+            hpas = hpas.filter(hpa_date__lte=to_date)
+        if truck_id:
+            hpas = hpas.filter(truck_id=truck_id)
+        
+        # Build response
+        pending_list = []
+        for hpa in hpas:
+            pending_list.append({
+                'hpa_id': hpa.id,
+                'hpa_number': hpa.hpa_number,
+                'hpa_date': hpa.hpa_date.isoformat() if hpa.hpa_date else None,
+                'truck_number': hpa.truck.truck_number if hpa.truck else None,
+                'truck_id': hpa.truck_id,
+                'driver_name': hpa.driver_name,
+                'from_location': hpa.from_location,
+                'to_location': hpa.to_location,
+                'lorry_hire': float(hpa.lorry_hire_rs or 0),
+                'total_paid': float((hpa.less_advance or 0) + (hpa.diesel_amount or 0) + (hpa.bank_amount or 0)),
+                'balance': float(hpa.balance_rs or 0),
+                'payment_status': hpa.payment_status,
+                'days_pending': (timezone.now().date() - hpa.hpa_date).days if hpa.hpa_date else 0
+            })
+        
+        # Summary by truck
+        truck_summary = {}
+        for item in pending_list:
+            truck_num = item['truck_number'] or 'Unknown'
+            if truck_num not in truck_summary:
+                truck_summary[truck_num] = {
+                    'truck_id': item['truck_id'],
+                    'truck_number': truck_num,
+                    'hpa_count': 0,
+                    'total_balance': 0
+                }
+            truck_summary[truck_num]['hpa_count'] += 1
+            truck_summary[truck_num]['total_balance'] += item['balance']
+        
+        total_pending = sum(item['balance'] for item in pending_list)
+        
+        return Response({
+            'summary': {
+                'total_hpas': len(pending_list),
+                'total_pending': total_pending,
+                'trucks_with_pending': len(truck_summary)
+            },
+            'by_truck': sorted(truck_summary.values(), key=lambda x: -x['total_balance']),
+            'details': pending_list
+        })

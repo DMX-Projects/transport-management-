@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     'apps.payments',
     'apps.pod',
     'apps.reports',
+    'apps.transactions',  # Payment transactions, POD, HPA-LR links
     # These will be added as they are developed:
     # 'apps.receipts',
     # 'apps.accounting',

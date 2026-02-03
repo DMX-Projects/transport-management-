@@ -271,10 +271,13 @@ def generate_hpa_pdf(hpa):
     elements.append(other_charges_table)
     elements.append(Spacer(1, 4*mm))
     
-    # Transaction History Section
-    transactions = hpa.transactions.all() if hasattr(hpa, 'transactions') else []
+    # Transaction History Section - Using unified HPATransaction table
+    transactions = hpa.transactions.filter(is_deleted=False).order_by('-transaction_date') if hasattr(hpa, 'transactions') else []
+    
     if transactions.exists():
+        elements.append(Spacer(1, 2*mm))
         elements.append(Paragraph("<b style='color: %s'>Payment Transactions History</b>" % blue_color, field_label_style))
+        elements.append(Spacer(1, 2*mm))
         
         # Transaction table header
         transaction_data = [
@@ -282,17 +285,31 @@ def generate_hpa_pdf(hpa):
         ]
         
         # Add transaction rows
-        for txn in transactions.all():
+        for txn in transactions:
+            details = []
+            if txn.pump_name:
+                details.append(f"Pump: {txn.pump_name}")
+            if txn.bank_name:
+                details.append(f"Bank: {txn.bank_name}")
+            if txn.reference_number:
+                details.append(f"Ref: {txn.reference_number}")
+            if txn.description:
+                details.append(txn.description)
+            elif txn.remarks:
+                details.append(txn.remarks)
+            
+            details_text = ', '.join(details) if details else '-'
+            
             transaction_data.append([
                 str(txn.transaction_date),
                 txn.get_transaction_type_display() if hasattr(txn, 'get_transaction_type_display') else txn.transaction_type,
                 txn.payment_mode or '-',
                 f"Rs. {float(txn.amount):.2f}",
-                txn.description or txn.remarks or '-'
+                details_text
             ])
         
         # Add totals row
-        total_transactions = sum(float(txn.amount) for txn in transactions.all())
+        total_transactions = sum(float(txn.amount) for txn in transactions)
         transaction_data.append([
             '', 'TOTAL', '', f"Rs. {total_transactions:.2f}", ''
         ])

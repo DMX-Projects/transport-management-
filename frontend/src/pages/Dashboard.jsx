@@ -15,14 +15,13 @@ export default function Dashboard() {
     const navigate = useNavigate();
     const { isSuperAdmin } = useAuth();
     
-    // Date range state - default to current month
+    // Date range state - default to last 3 months for better visibility
     const [dateRange, setDateRange] = useState(() => {
         const now = new Date();
-        const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-        const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
         return {
-            from_date: firstDay.toISOString().split('T')[0],
-            to_date: lastDay.toISOString().split('T')[0]
+            from_date: threeMonthsAgo.toISOString().split('T')[0],
+            to_date: now.toISOString().split('T')[0]
         };
     });
     
@@ -399,14 +398,14 @@ export default function Dashboard() {
                             Open HPAs (Without Bills)
                         </h2>
                         <p style={{ fontSize: '14px', color: '#6b7280' }}>
-                            {isLoadingHPAs ? 'Loading...' : (
-                                hpasWithoutBillsData?.count ? 
-                                    `${hpasWithoutBillsData.count} open HPA${hpasWithoutBillsData.count !== 1 ? 's' : ''} awaiting billing` :
+                            {isLoadingPendingHPAs ? 'Loading...' : (
+                                pendingHPAs?.count ? 
+                                    `${pendingHPAs.count} open HPA${pendingHPAs.count !== 1 ? 's' : ''} awaiting billing` :
                                     'All HPAs are billed'
                             )}
                         </p>
                     </div>
-                    {hpasWithoutBillsData?.count > 0 && (
+                    {pendingHPAs?.count > 0 && (
                         <button 
                             className="btn btn-primary" 
                             style={{ justifyContent: 'center' }}
@@ -416,7 +415,7 @@ export default function Dashboard() {
                         </button>
                     )}
                 </div>
-                {isLoadingHPAs ? (
+                {isLoadingPendingHPAs ? (
                     <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af' }}>
                         Loading HPAs...
                     </div>
@@ -486,7 +485,7 @@ export default function Dashboard() {
                                         <tr
                                             key={hpa.id}
                                             style={{
-                                                borderBottom: index < Math.min(hpasWithoutBillsData.hpas.length, 10) - 1 ? '1px solid #f3f4f6' : 'none',
+                                                borderBottom: index < Math.min(pendingHPAs.results.length, 10) - 1 ? '1px solid #f3f4f6' : 'none',
                                                 transition: 'background 0.2s',
                                                 cursor: 'pointer'
                                             }}

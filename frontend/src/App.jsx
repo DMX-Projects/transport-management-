@@ -11,7 +11,8 @@ import LRForm from './pages/LRForm';
 import HPAManagement from './pages/HPAManagement';
 import HPAForm from './pages/HPAForm';
 import ActiveHPADashboard from './pages/ActiveHPADashboard';
-import Payments from './pages/Payments';
+import PaymentsUnified from './pages/PaymentsUnified';
+import TruckStatement from './pages/TruckStatement';
 import POD from './pages/POD';
 import Billing from './pages/Billing';
 import BillingTemplates from './pages/BillingTemplates';
@@ -156,7 +157,20 @@ function AppRoutes() {
         <Route path="/payments" element={
           <ProtectedRoute>
             <DashboardLayout>
-              <Payments />
+              <PaymentsUnified />
+            </DashboardLayout>
+          </ProtectedRoute>
+        } />
+
+        {/* Redirect old truck-payments route to unified payments */}
+        <Route path="/truck-payments" element={
+          <Navigate to="/payments" replace />
+        } />
+
+        <Route path="/truck-statement" element={
+          <ProtectedRoute>
+            <DashboardLayout>
+              <TruckStatement />
             </DashboardLayout>
           </ProtectedRoute>
         } />

@@ -33,14 +33,27 @@ export default function HPAForm() {
         truck: '',
         lr: '', // Primary LR
         hpa_date: new Date().toISOString().split('T')[0],
+        from_location: '',
+        to_location: '',
+        owner_name: '',
+        owner_mob: '',
         driver_name: '',
         driver_mob: '',
         tons: '',
         rate_per_tonne: '',
         lorry_hire_rs: '',
-        advance_rs: '',
+        // Payment Breakdown (matching physical HPA form)
+        advance_paid_rs: '', // Less Advance
+        diesel_amount: '',   // Diesel payment
+        pump_name: '',       // Diesel pump name
+        bank_amount: '',     // Bank transfer amount
+        bank_name: '',       // Bank name
+        other_deductions: '',// Other deductions
+        other_deductions_description: '',
+        total_deductions: '',
         balance_rs: '',
         payment_status: 'PENDING',
+        note: '',
         remarks: ''
     });
 
@@ -92,14 +105,27 @@ export default function HPAForm() {
                 truck: hpaData.truck || '',
                 lr: hpaData.lr || '',
                 hpa_date: hpaData.hpa_date || '',
+                from_location: hpaData.from_location || '',
+                to_location: hpaData.to_location || '',
+                owner_name: hpaData.owner_name || '',
+                owner_mob: hpaData.owner_mob || '',
                 driver_name: hpaData.driver_name || '',
                 driver_mob: hpaData.driver_mob || '',
                 tons: hpaData.tons || '',
                 rate_per_tonne: hpaData.rate_per_tonne || '',
                 lorry_hire_rs: hpaData.lorry_hire_rs || '',
-                advance_rs: hpaData.advance_rs || '',
+                // Payment Breakdown
+                advance_paid_rs: hpaData.advance_paid_rs || '',
+                diesel_amount: hpaData.diesel_amount || '',
+                pump_name: hpaData.pump_name || '',
+                bank_amount: hpaData.bank_amount || '',
+                bank_name: hpaData.bank_name || '',
+                other_deductions: hpaData.other_deductions || '',
+                other_deductions_description: hpaData.other_deductions_description || '',
+                total_deductions: hpaData.total_deductions || '',
                 balance_rs: hpaData.balance_rs || '',
                 payment_status: hpaData.payment_status || 'PENDING',
+                note: hpaData.note || '',
                 remarks: hpaData.remarks || ''
             });
             setAdditionalLRs(hpaData.additional_lrs?.map(lr => lr.id) || []);
@@ -127,39 +153,52 @@ export default function HPAForm() {
     useEffect(() => {
         const tons = parseFloat(formData.tons) || 0;
         const rate = parseFloat(formData.rate_per_tonne) || 0;
-        
+
         if (tons > 0 && rate > 0) {
             const lorryHire = tons * rate;
             setFormData(prev => ({
                 ...prev,
                 lorry_hire_rs: lorryHire.toFixed(2)
             }));
+        } else {
+            setFormData(prev => ({
+                ...prev,
+                lorry_hire_rs: '0.00'
+            }));
         }
     }, [formData.tons, formData.rate_per_tonne]);
 
-    // Auto-calculate balance (Lorry Hire - Advance)
+    // Auto-calculate balance (Lorry Hire - All Deductions)
     useEffect(() => {
         const hire = parseFloat(formData.lorry_hire_rs) || 0;
-        const advance = parseFloat(formData.advance_rs) || 0;
-        const balance = hire - advance;
+        const advance = parseFloat(formData.advance_paid_rs) || 0;
+        const diesel = parseFloat(formData.diesel_amount) || 0;
+        const bank = parseFloat(formData.bank_amount) || 0;
+        const other = parseFloat(formData.other_deductions) || 0;
+        
+        const totalDeductions = advance + diesel + bank + other;
+        const balance = hire - totalDeductions;
         
         setFormData(prev => ({
             ...prev,
+            total_deductions: totalDeductions.toFixed(2),
             balance_rs: balance.toFixed(2)
         }));
-    }, [formData.lorry_hire_rs, formData.advance_rs]);
+    }, [formData.lorry_hire_rs, formData.advance_paid_rs, formData.diesel_amount, formData.bank_amount, formData.other_deductions]);
 
     // Track previous truck value to detect changes
     const [previousTruck, setPreviousTruck] = useState(null);
 
-    // Auto-populate driver details when truck is selected/changed
+    // Auto-populate owner and driver details when truck is selected/changed
     useEffect(() => {
         if (formData.truck && trucks.length > 0) {
             const selectedTruck = trucks.find(t => t.id === parseInt(formData.truck));
             if (selectedTruck && formData.truck !== previousTruck) {
-                // Truck has changed - auto-populate driver fields
+                // Truck has changed - auto-populate owner and driver fields
                 setFormData(prev => ({
                     ...prev,
+                    owner_name: selectedTruck.owner_name || prev.owner_name || '',
+                    owner_mob: selectedTruck.owner_phone || prev.owner_mob || '',
                     driver_name: selectedTruck.driver_name || prev.driver_name || '',
                     driver_mob: selectedTruck.driver_phone || prev.driver_mob || ''
                 }));
@@ -167,6 +206,23 @@ export default function HPAForm() {
             }
         }
     }, [formData.truck, trucks, previousTruck]);
+
+    // Auto-populate location from primary LR when LR is selected
+    const [previousLR, setPreviousLR] = useState(null);
+    
+    useEffect(() => {
+        if (formData.lr && lrs.length > 0 && formData.lr !== previousLR) {
+            const selectedLR = lrs.find(lr => lr.id === parseInt(formData.lr));
+            if (selectedLR) {
+                setFormData(prev => ({
+                    ...prev,
+                    from_location: selectedLR.from_location || prev.from_location || '',
+                    to_location: selectedLR.to_location || prev.to_location || ''
+                }));
+                setPreviousLR(formData.lr);
+            }
+        }
+    }, [formData.lr, lrs, previousLR]);
 
     // Helper function to create invoice from LR
     const createInvoiceFromLR = (lrId) => {
@@ -624,12 +680,63 @@ export default function HPAForm() {
                         </div>
                     </div>
 
-                    {/* Section 3: Driver Details */}
+                    {/* Section 3: Location Details */}
                     <div style={{ marginBottom: '32px' }}>
                         <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#111827' }}>
-                            Driver Details
+                            Route Details
                         </h3>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
+                            <div>
+                                <label className="form-label">From Location *</label>
+                                <input
+                                    type="text"
+                                    className="input"
+                                    value={formData.from_location}
+                                    onChange={(e) => setFormData({ ...formData, from_location: e.target.value })}
+                                    placeholder="e.g., Chettinad Dachepalli"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label className="form-label">To Location *</label>
+                                <input
+                                    type="text"
+                                    className="input"
+                                    value={formData.to_location}
+                                    onChange={(e) => setFormData({ ...formData, to_location: e.target.value })}
+                                    placeholder="e.g., Proddatur"
+                                    required
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Section 4: Owner & Driver Details */}
+                    <div style={{ marginBottom: '32px' }}>
+                        <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#111827' }}>
+                            Owner & Driver Details
+                        </h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+                            <div>
+                                <label className="form-label">Owner Name</label>
+                                <input
+                                    type="text"
+                                    className="input"
+                                    value={formData.owner_name}
+                                    onChange={(e) => setFormData({ ...formData, owner_name: e.target.value })}
+                                    placeholder="Truck owner name"
+                                />
+                            </div>
+                            <div>
+                                <label className="form-label">Owner Mobile</label>
+                                <input
+                                    type="tel"
+                                    className="input"
+                                    value={formData.owner_mob}
+                                    onChange={(e) => setFormData({ ...formData, owner_mob: e.target.value })}
+                                    placeholder="Owner mobile"
+                                />
+                            </div>
                             <div>
                                 <label className="form-label">Driver Name</label>
                                 <input
@@ -637,10 +744,9 @@ export default function HPAForm() {
                                     className="input"
                                     value={formData.driver_name}
                                     onChange={(e) => setFormData({ ...formData, driver_name: e.target.value })}
-                                    placeholder="Enter driver name"
+                                    placeholder="Driver name"
                                 />
                             </div>
-
                             <div>
                                 <label className="form-label">Driver Mobile</label>
                                 <input
@@ -648,56 +754,133 @@ export default function HPAForm() {
                                     className="input"
                                     value={formData.driver_mob}
                                     onChange={(e) => setFormData({ ...formData, driver_mob: e.target.value })}
-                                    placeholder="Mobile number"
+                                    placeholder="Driver mobile"
                                 />
                             </div>
                         </div>
                     </div>
 
-                    {/* Section 4: Payment Details */}
+                    {/* Section 5: Payment Details - Matching Physical HPA Form */}
                     <div style={{ marginBottom: '32px' }}>
                         <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#111827' }}>
                             Payment Details
                         </h3>
+
+                        {/* Payment Breakdown - Matching Physical HPA Form */}
+                        <div style={{ background: '#fef3c7', padding: '16px', borderRadius: '8px', marginBottom: '16px' }}>
+                            <h4 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px', color: '#92400e' }}>
+                                Payment Breakdown (Deductions from Lorry Hire)
+                            </h4>
+                            
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+                                <div>
+                                    <label className="form-label">Less Advance (₹)</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        className="input"
+                                        value={formData.advance_paid_rs}
+                                        onChange={(e) => setFormData({ ...formData, advance_paid_rs: e.target.value })}
+                                        placeholder="0.00"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="form-label">Diesel (₹)</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        className="input"
+                                        value={formData.diesel_amount}
+                                        onChange={(e) => setFormData({ ...formData, diesel_amount: e.target.value })}
+                                        placeholder="0.00"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="form-label">Pump Name</label>
+                                    <input
+                                        type="text"
+                                        className="input"
+                                        value={formData.pump_name}
+                                        onChange={(e) => setFormData({ ...formData, pump_name: e.target.value })}
+                                        placeholder="Diesel pump name"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="form-label">Bank (₹)</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        className="input"
+                                        value={formData.bank_amount}
+                                        onChange={(e) => setFormData({ ...formData, bank_amount: e.target.value })}
+                                        placeholder="0.00"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="form-label">Bank Name</label>
+                                    <input
+                                        type="text"
+                                        className="input"
+                                        value={formData.bank_name}
+                                        onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
+                                        placeholder="Bank name"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="form-label">Other Deductions (₹)</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        className="input"
+                                        value={formData.other_deductions}
+                                        onChange={(e) => setFormData({ ...formData, other_deductions: e.target.value })}
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                            </div>
+
+                            {formData.other_deductions > 0 && (
+                                <div style={{ marginTop: '12px' }}>
+                                    <label className="form-label">Other Deductions Description</label>
+                                    <input
+                                        type="text"
+                                        className="input"
+                                        value={formData.other_deductions_description}
+                                        onChange={(e) => setFormData({ ...formData, other_deductions_description: e.target.value })}
+                                        placeholder="Description of other deductions"
+                                    />
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Total and Balance */}
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
                             <div>
-                                <label className="form-label">Lorry Hire (₹) *</label>
+                                <label className="form-label">Total Deductions (₹)</label>
                                 <input
                                     type="number"
                                     step="0.01"
                                     className="input"
-                                    value={formData.lorry_hire_rs}
+                                    value={formData.total_deductions}
                                     readOnly
-                                    style={{ background: '#f9fafb', color: '#111827', fontWeight: 600 }}
-                                    placeholder="Auto-calculated (Tons × Rate)"
-                                    required
-                                />
-                                <small style={{ color: '#6b7280', fontSize: '12px', marginTop: '4px', display: 'block' }}>
-                                    Auto-calculated: {formData.tons || '0'} × {formData.rate_per_tonne || '0'} = ₹{formData.lorry_hire_rs || '0.00'}
-                                </small>
-                            </div>
-
-                            <div>
-                                <label className="form-label">Advance (₹)</label>
-                                <input
-                                    type="number"
-                                    step="0.01"
-                                    className="input"
-                                    value={formData.advance_rs}
-                                    onChange={(e) => setFormData({ ...formData, advance_rs: e.target.value })}
-                                    placeholder="0.00"
+                                    style={{ background: '#fee2e2', color: '#991b1b', fontWeight: 600 }}
                                 />
                             </div>
 
                             <div>
-                                <label className="form-label">Balance (₹)</label>
+                                <label className="form-label">Balance Rs. (₹)</label>
                                 <input
                                     type="number"
                                     step="0.01"
                                     className="input"
                                     value={formData.balance_rs}
                                     readOnly
-                                    style={{ background: '#f9fafb', color: '#6b7280', fontWeight: 600 }}
+                                    style={{ background: '#dcfce7', color: '#166534', fontWeight: 700, fontSize: '18px' }}
                                 />
                             </div>
                         </div>
@@ -886,7 +1069,7 @@ export default function HPAForm() {
                         </h3>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
                             <div>
-                                <label className="form-label">Tons *</label>
+                                <label className="form-label">Tons (Quantity) *</label>
                                 <input
                                     type="number"
                                     step="0.01"
@@ -910,6 +1093,17 @@ export default function HPAForm() {
                                     required
                                 />
                             </div>
+                        </div>
+                        
+                        {/* Lorry Hire Calculation Display - Shows Auto-calculated value */}
+                        <div style={{ marginTop: '20px', padding: '16px', background: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd' }}>
+                            <label className="form-label" style={{ color: '#0369a1', fontWeight: 600 }}>Lorry Hire (₹) - Auto-calculated</label>
+                            <div style={{ fontSize: '24px', fontWeight: 700, color: '#0c4a6e', marginTop: '8px' }}>
+                                ₹{formData.lorry_hire_rs || '0.00'}
+                            </div>
+                            <small style={{ color: '#0369a1', fontSize: '13px', marginTop: '6px', display: 'block' }}>
+                                Calculation: {formData.tons || '0'} tons × ₹{formData.rate_per_tonne || '0'} per tonne = ₹{formData.lorry_hire_rs || '0.00'}
+                            </small>
                         </div>
                     </div>
 

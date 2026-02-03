@@ -185,6 +185,37 @@ export const reportsApi = api.injectEndpoints({
                 responseHandler: (response) => response.blob(),
             }),
         }),
+
+        // ============================================================
+        // PHASE 5 ADDITIONS: Truck Statement & LR-HPA Mapping
+        // ============================================================
+
+        // Truck statement - all HPAs and payments for a specific truck
+        getTruckStatement: builder.query({
+            query: ({ truckId, ...params }) => ({
+                url: `/reports/truck-statement/${truckId}/`,
+                params,
+            }),
+            providesTags: ['Report', 'HPA', 'PaymentTransaction'],
+        }),
+
+        // LR to HPA mapping report
+        getLrHpaMapping: builder.query({
+            query: (params = {}) => ({
+                url: '/reports/lr-hpa-mapping/',
+                params,
+            }),
+            providesTags: ['Report', 'LR', 'HPA'],
+        }),
+
+        // Pending truck payments report
+        getPendingTruckPayments: builder.query({
+            query: (params = {}) => ({
+                url: '/reports/pending-truck-payments/',
+                params,
+            }),
+            providesTags: ['Report', 'HPA', 'PaymentTransaction'],
+        }),
     }),
 });
 
@@ -213,4 +244,8 @@ export const {
     useExportAgingMutation,
     useExportSettlementMutation,
     useExportClientStatementMutation,
+    // Phase 5 Additions: Truck Statement & LR-HPA Mapping
+    useGetTruckStatementQuery,
+    useGetLrHpaMappingQuery,
+    useGetPendingTruckPaymentsQuery,
 } = reportsApi;

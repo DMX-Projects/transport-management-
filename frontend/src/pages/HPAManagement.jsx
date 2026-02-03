@@ -279,13 +279,17 @@ export default function HPAManagement() {
                                                 <button
                                                     onClick={() => {
                                                         const token = localStorage.getItem('token');
-                                                        const url = `http://localhost:8000/api/v1/hpa/hire-payment-advices/${hpa.id}/download_pdf/`;
+                                                        const apiBase = import.meta.env.VITE_API_BASE_URL || (window.location.origin + '/api/v1');
+                                                        const url = `${apiBase}/hpa/hire-payment-advices/${hpa.id}/download_pdf/`;
                                                         fetch(url, {
                                                             headers: {
                                                                 'Authorization': `Bearer ${token}`
                                                             }
                                                         })
-                                                        .then(response => response.blob())
+                                                        .then(response => {
+                                                            if (!response.ok) throw new Error('Download failed');
+                                                            return response.blob();
+                                                        })
                                                         .then(blob => {
                                                             const url = window.URL.createObjectURL(blob);
                                                             const a = document.createElement('a');
@@ -298,7 +302,7 @@ export default function HPAManagement() {
                                                         })
                                                         .catch(error => {
                                                             console.error('Error downloading PDF:', error);
-                                                            alert('Error downloading PDF. Please try again.');
+                                                            alert('Error downloading PDF. Please check if the backend is running and try again.');
                                                         });
                                                     }}
                                                     style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#10b981' }}
@@ -309,13 +313,17 @@ export default function HPAManagement() {
                                                 <button
                                                     onClick={() => {
                                                         const token = localStorage.getItem('token');
-                                                        const url = `http://localhost:8000/api/v1/hpa/hire-payment-advices/${hpa.id}/download_pdf/`;
+                                                        const apiBase = import.meta.env.VITE_API_BASE_URL || (window.location.origin + '/api/v1');
+                                                        const url = `${apiBase}/hpa/hire-payment-advices/${hpa.id}/download_pdf/`;
                                                         fetch(url, {
                                                             headers: {
                                                                 'Authorization': `Bearer ${token}`
                                                             }
                                                         })
-                                                        .then(response => response.blob())
+                                                        .then(response => {
+                                                            if (!response.ok) throw new Error('Share failed');
+                                                            return response.blob();
+                                                        })
                                                         .then(blob => {
                                                             const blobUrl = window.URL.createObjectURL(blob);
                                                             const message = `HPA ${hpa.hpa_number} - Click to view: ${blobUrl}`;
@@ -325,7 +333,7 @@ export default function HPAManagement() {
                                                         })
                                                         .catch(error => {
                                                             console.error('Error sharing PDF:', error);
-                                                            alert('Error sharing PDF. Please try again.');
+                                                            alert('Error sharing PDF. Please check if the backend is running and try again.');
                                                         });
                                                     }}
                                                     style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#25D366' }}

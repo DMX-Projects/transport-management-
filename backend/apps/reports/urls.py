@@ -32,4 +32,9 @@ urlpatterns = [
     path('download-bill-sync/', ReportsViewSet.as_view({'get': 'download_bill_sync'}), name='download-bill-sync'),
     path('download-lr/', ReportsViewSet.as_view({'get': 'download_lr'}), name='download-lr'),
     path('download-hpa/', ReportsViewSet.as_view({'get': 'download_hpa'}), name='download-hpa'),
+    
+    # Phase 5 Additions: Truck Statement & LR-HPA Mapping
+    path('truck-statement/<int:truck_id>/', ReportsViewSet.as_view({'get': 'truck_statement'}), name='truck-statement'),
+    path('lr-hpa-mapping/', ReportsViewSet.as_view({'get': 'lr_hpa_mapping'}), name='lr-hpa-mapping'),
+    path('pending-truck-payments/', ReportsViewSet.as_view({'get': 'pending_truck_payments'}), name='pending-truck-payments'),
 ]

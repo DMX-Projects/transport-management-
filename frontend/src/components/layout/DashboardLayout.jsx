@@ -16,6 +16,7 @@ import {
     BellIcon,
     ClockIcon,
     ExclamationCircleIcon,
+    BanknotesIcon,
 } from '@heroicons/react/24/outline';
 import { useDispatch, useSelector } from 'react-redux';
 import { logout, selectCurrentUser } from '../../features/auth/authSlice';
@@ -27,7 +28,8 @@ const navigation = [
     { name: 'HPA Management', href: '/hpa', icon: TruckIcon },
     { name: 'Active HPAs', href: '/active-hpas', icon: ClockIcon },
     { name: 'POD Management', href: '/pod', icon: DocumentCheckIcon },
-    { name: 'Payments', href: '/payments', icon: CreditCardIcon },
+    { name: 'Payments', href: '/payments', icon: BanknotesIcon },
+    { name: 'Truck Statement', href: '/truck-statement', icon: ChartBarIcon },
     { name: 'Billing', href: '/billing', icon: ReceiptPercentIcon },
     { name: 'Billing Templates', href: '/billing-templates', icon: Cog6ToothIcon },
     { name: 'Client Payments', href: '/client-payments', icon: CreditCardIcon },

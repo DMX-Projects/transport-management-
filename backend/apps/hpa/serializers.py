@@ -22,7 +22,7 @@ class HPAInvoiceSerializer(serializers.ModelSerializer):
             'lrs', 'lr_ids', 'lr_numbers', 'lr_count',
             'from_location', 'to_location', 'destination',
             'quantity_mt', 'number_of_bags', 'material_description',
-            'amount', 'remarks',
+            'remarks',
             'created_at', 'created_by', 'created_by_name',
             'updated_at', 'updated_by'
         ]
@@ -49,7 +49,7 @@ class HPAInvoiceCreateSerializer(serializers.ModelSerializer):
             'invoice_number', 'invoice_date',
             'lr_ids', 'from_location', 'to_location', 'destination',
             'quantity_mt', 'number_of_bags', 'material_description',
-            'amount', 'remarks'
+            'remarks'
         ]
     
     def validate_invoice_number(self, value):
@@ -161,6 +161,9 @@ class HirePaymentAdviceSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(source='created_by.username', read_only=True)
     updated_by_name = serializers.CharField(source='updated_by.username', read_only=True)
     
+    # Payment field mapping - map model field to API field name for consistency
+    advance_paid_rs = serializers.DecimalField(source='less_advance', max_digits=12, decimal_places=2, read_only=True)
+    
     # Invoice fields - Phase 1: Multiple Invoice Support
     invoices = HPAInvoiceSerializer(many=True, read_only=True)
     invoice_list = serializers.CharField(read_only=True)
@@ -187,7 +190,7 @@ class HirePaymentAdviceSerializer(serializers.ModelSerializer):
             'driver_name', 'driver_mob',
             'tons', 'rate_per_tonne',
             'lorry_hire_rs', 'advance_paid_rs', 'diesel_amount', 'pump_name',
-            'bank_amount', 'other_deductions', 'other_deductions_description',
+            'bank_amount', 'bank_name', 'other_deductions', 'other_deductions_description',
             'total_deductions', 'balance_rs',
             'payment_status', 'paid_amount', 'payment_date', 'payment_mode',
             'note', 'remarks',
@@ -213,12 +216,18 @@ class HirePaymentAdviceSerializer(serializers.ModelSerializer):
     def get_lrs(self, obj):
         """Get all linked LRs"""
         from apps.lr.serializers import LorryReceiptSerializer
-        lrs = obj.lrs
-        return LorryReceiptSerializer(lrs, many=True).data if lrs.exists() else []
+        # Get all LRs using the property method from the model
+        lrs = obj.all_lrs
+        return LorryReceiptSerializer(lrs, many=True).data if lrs else []
     
     def get_lr_count(self, obj):
         """Get count of linked LRs"""
-        return obj.lrs.count()
+        # Count primary + additional LRs
+        count = 0
+        if obj.lr:
+            count += 1
+        count += obj.additional_lrs.count()
+        return count
 
 
 class HirePaymentAdviceCreateSerializer(serializers.ModelSerializer):
@@ -256,7 +265,9 @@ class HirePaymentAdviceCreateSerializer(serializers.ModelSerializer):
     )
     
     # Make deduction fields optional - they default to 0 in the model
+    # Use source='less_advance' to map API field name to model field
     advance_paid_rs = serializers.DecimalField(
+        source='less_advance',
         max_digits=12,
         decimal_places=2,
         required=False,
@@ -313,7 +324,7 @@ class HirePaymentAdviceCreateSerializer(serializers.ModelSerializer):
             'driver_name', 'driver_mob', 'lr_reference',
             'tons', 'rate_per_tonne',
             'advance_paid_rs', 'diesel_amount', 'pump_name',
-            'bank_amount', 'other_deductions', 'other_deductions_description',
+            'bank_amount', 'bank_name', 'other_deductions', 'other_deductions_description',
             'paid_amount', 'payment_date', 'payment_mode',
             'note', 'remarks'
         ]
@@ -462,8 +473,9 @@ class HirePaymentAdviceCreateSerializer(serializers.ModelSerializer):
                     lorry_hire = 0
             
             # Convert deductions to float, using 0 if not provided
+            # Note: less_advance is the model field name (mapped from advance_paid_rs in API)
             total_deductions = (
-                float(data.get('advance_paid_rs') or 0) +
+                float(data.get('less_advance') or 0) +
                 float(data.get('diesel_amount') or 0) +
                 float(data.get('bank_amount') or 0) +
                 float(data.get('other_deductions') or 0)
@@ -601,6 +613,15 @@ class HirePaymentAdviceCreateSerializer(serializers.ModelSerializer):
 class HirePaymentAdviceUpdateSerializer(serializers.ModelSerializer):
     """Serializer for updating HPAs - branch users can only update status"""
     
+    # Use source='less_advance' to map API field name to model field
+    advance_paid_rs = serializers.DecimalField(
+        source='less_advance',
+        max_digits=12,
+        decimal_places=2,
+        required=False,
+        allow_null=True
+    )
+    
     class Meta:
         model = HirePaymentAdvice
         fields = [
@@ -610,7 +631,7 @@ class HirePaymentAdviceUpdateSerializer(serializers.ModelSerializer):
             'driver_name', 'driver_mob',
             'tons', 'rate_per_tonne',
             'advance_paid_rs', 'diesel_amount', 'pump_name',
-            'bank_amount', 'other_deductions', 'other_deductions_description',
+            'bank_amount', 'bank_name', 'other_deductions', 'other_deductions_description',
             'paid_amount', 'payment_date', 'payment_mode',
             'payment_status', 'note', 'remarks'
         ]
@@ -642,8 +663,9 @@ class HirePaymentAdviceUpdateSerializer(serializers.ModelSerializer):
         else:
             lorry_hire = data.get('lorry_hire_rs', instance.lorry_hire_rs)
         
+        # Note: less_advance is the model field name (mapped from advance_paid_rs in API)
         total_deductions = (
-            data.get('advance_paid_rs', instance.advance_paid_rs) +
+            data.get('less_advance', instance.less_advance) +
             data.get('diesel_amount', instance.diesel_amount) +
             data.get('bank_amount', instance.bank_amount) +
             data.get('other_deductions', instance.other_deductions)
