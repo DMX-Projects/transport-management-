@@ -307,7 +307,8 @@ export default function LRManagement() {
                                                 <button
                                                     onClick={() => {
                                                         const token = localStorage.getItem('token');
-                                                        const url = `http://localhost:8000/api/v1/lr/lorry-receipts/${lr.id}/download_pdf/`;
+                                                        const apiBase = import.meta.env.VITE_API_BASE_URL || (window.location.origin + '/api/v1');
+                                                        const url = `${apiBase}/lr/lorry-receipts/${lr.id}/download_pdf/`;
                                                         fetch(url, {
                                                             headers: {
                                                                 'Authorization': `Bearer ${token}`
@@ -332,7 +333,8 @@ export default function LRManagement() {
                                                 <button
                                                     onClick={() => {
                                                         const token = localStorage.getItem('token');
-                                                        const url = `http://localhost:8000/api/v1/lr/lorry-receipts/${lr.id}/download_pdf/`;
+                                                        const apiBase = import.meta.env.VITE_API_BASE_URL || (window.location.origin + '/api/v1');
+                                                        const url = `${apiBase}/lr/lorry-receipts/${lr.id}/download_pdf/`;
                                                         fetch(url, {
                                                             headers: {
                                                                 'Authorization': `Bearer ${token}`
@@ -362,7 +364,8 @@ export default function LRManagement() {
                                                 <button
                                                     onClick={() => {
                                                         const token = localStorage.getItem('token');
-                                                        const url = `http://localhost:8000/api/v1/lr/lorry-receipts/${lr.id}/download_pdf/`;
+                                                        const apiBase = import.meta.env.VITE_API_BASE_URL || (window.location.origin + '/api/v1');
+                                                        const url = `${apiBase}/lr/lorry-receipts/${lr.id}/download_pdf/`;
                                                         fetch(url, {
                                                             headers: {
                                                                 'Authorization': `Bearer ${token}`
