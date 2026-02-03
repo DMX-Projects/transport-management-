@@ -229,7 +229,7 @@ def generate_hpa_pdf(hpa):
     financial_data = [
         ['Rate per Tonne:', f"Rs. {hpa.rate_per_tonne or 983}"],
         ['Lorry Hire Rs.:', f"Rs. {float(hpa.lorry_hire_rs or 34405.00):.2f}"],
-        ['Less Advance:', f"Rs. {float(hpa.advance_paid_rs or 300.00):.2f}"],
+        ['Less Advance:', f"Rs. {float(hpa.less_advance or 300.00):.2f}"],
         ['Diesel:', f"Rs. {float(hpa.diesel_amount or 23000):.2f}"],
         ['Pump Name:', hpa.pump_name or 'B.R.K. REDDY'],
         ['Bank:', f"Rs. {float(hpa.bank_amount or 8000.00):.2f}"],
