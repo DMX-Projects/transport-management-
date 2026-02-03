@@ -1,0 +1,30 @@
+server {
+    listen 80;
+    listen [::]:80;
+
+    server_name 103.65.21.176;
+
+    # Media files - redirect to backend port for consistent access
+    location /media/ {
+        return 301 http://103.65.21.176:8003$request_uri;
+    }
+
+    # Static files - redirect to backend port
+    location /static/ {
+        return 301 http://103.65.21.176:8003$request_uri;
+    }
+
+    # Redirect API and admin requests to the backend port
+    location /api/ {
+        return 301 http://103.65.21.176:8003$request_uri;
+    }
+
+    location /admin/ {
+        return 301 http://103.65.21.176:8003$request_uri;
+    }
+
+    # Root location - redirect to frontend
+    location / {
+        return 301 http://103.65.21.176:5174$request_uri;
+    }
+}
