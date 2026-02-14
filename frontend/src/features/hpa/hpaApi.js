@@ -92,15 +92,6 @@ export const hpaApi = api.injectEndpoints({
                 'HPA'
             ],
         }),
-
-        // Get HPAs without bills
-        getHPAsWithoutBills: builder.query({
-            query: (params = {}) => ({
-                url: '/hpa/hire-payment-advices/without_bills/',
-                params,
-            }),
-            providesTags: ['HPA'],
-        }),
     }),
 });
 
@@ -116,5 +107,4 @@ export const {
     useMarkAsPaidMutation,
     useGetHPATransactionsQuery,
     useAddHPATransactionMutation,
-    useGetHPAsWithoutBillsQuery,
 } = hpaApi;

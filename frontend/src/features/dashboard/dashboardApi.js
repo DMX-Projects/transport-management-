@@ -33,12 +33,6 @@ export const dashboardApi = api.injectEndpoints({
             invalidatesTags: ['Dashboard'],
         }),
 
-        // Get HPAs without bills
-        getHPAsWithoutBills: builder.query({
-            query: () => '/dashboard/stats/hpas_without_bills/',
-            providesTags: ['Dashboard', 'HPA', 'Bill'],
-        }),
-
         // Get pending LRs (without HPA)
         getPendingLRs: builder.query({
             query: (params = {}) => ({
@@ -48,7 +42,7 @@ export const dashboardApi = api.injectEndpoints({
             providesTags: ['Dashboard', 'LR'],
         }),
 
-        // Get pending HPAs (without bills)
+        // Get pending HPAs
         getPendingHPAs: builder.query({
             query: (params = {}) => ({
                 url: '/dashboard/stats/pending_hpas/',
@@ -73,7 +67,6 @@ export const {
     useGetDashboardSummaryQuery,
     useGetDashboardMetricsQuery,
     useRefreshDashboardStatsMutation,
-    useGetHPAsWithoutBillsQuery,
     useGetPendingLRsQuery,
     useGetPendingHPAsQuery,
     useGetStatsByDateRangeQuery,

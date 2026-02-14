@@ -9,7 +9,6 @@ from .models import DashboardStats
 from .serializers import DashboardStatsSerializer
 from apps.lr.models import LorryReceipt
 from apps.hpa.models import HirePaymentAdvice
-from apps.billing.models import Bill
 from apps.masters.models import Truck, Consignor, Party
 from .signals import update_dashboard_stats
 from apps.common.pagination import StandardResultsSetPagination
@@ -186,43 +185,6 @@ class DashboardStatsViewSet(viewsets.ReadOnlyModelViewSet):
         })
     
     @action(detail=False, methods=['GET'])
-    def hpas_without_bills(self, request):
-        """
-        Get HPAs that don't have bills created yet
-        Returns list of HPAs whose LRs are not in any BillItem
-        """
-        from apps.hpa.models import HirePaymentAdvice
-        from apps.billing.models import BillItem
-        
-        user = request.user
-        
-        # Get all HPAs for user's accessible branches
-        hpa_queryset = HirePaymentAdvice.objects.filter(is_deleted=False)
-        
-        if not user.can_access_all_branches:
-            if user.branch:
-                hpa_queryset = hpa_queryset.filter(branch=user.branch)
-            else:
-                hpa_queryset = hpa_queryset.none()
-        
-        # Get all LRs that are already in bills
-        billed_lr_ids = BillItem.objects.filter(
-            bill__is_deleted=False
-        ).values_list('lr_id', flat=True).distinct()
-        
-        # Filter HPAs whose LRs are not in bills
-        hpas_without_bills = hpa_queryset.exclude(lr_id__in=billed_lr_ids)
-        
-        # Serialize the results
-        from apps.hpa.serializers import HirePaymentAdviceSerializer
-        serializer = HirePaymentAdviceSerializer(hpas_without_bills, many=True)
-        
-        return Response({
-            'count': hpas_without_bills.count(),
-            'hpas': serializer.data
-        })
-    
-    @action(detail=False, methods=['GET'])
     def pending_lrs(self, request):
         """
         Get all LRs that are pending HPA creation
@@ -288,12 +250,11 @@ class DashboardStatsViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False, methods=['GET'])
     def pending_hpas(self, request):
         """
-        Get all HPAs that are pending bill creation
+        Get all HPAs that are pending payment
         Supports date range filtering with from_date and to_date
         """
         from apps.hpa.models import HirePaymentAdvice
         from apps.hpa.serializers import HirePaymentAdviceSerializer
-        from apps.billing.models import BillItem
         
         user = request.user
         
@@ -306,15 +267,8 @@ class DashboardStatsViewSet(viewsets.ReadOnlyModelViewSet):
             else:
                 hpa_queryset = hpa_queryset.none()
         
-        # Get all HPA IDs that are in bills (through LR -> BillItem relationship)
-        # HPA is OneToOne with LR, so we get HPA IDs via lr.hpa
-        billed_hpa_ids = BillItem.objects.filter(
-            bill__is_deleted=False,
-            lr__hpa__isnull=False
-        ).values_list('lr__hpa', flat=True).distinct()
-        
-        # Filter HPAs without bills
-        pending_hpas = hpa_queryset.exclude(id__in=billed_hpa_ids)
+        # Filter HPAs with pending/partial payment
+        pending_hpas = hpa_queryset.filter(payment_status__in=['PENDING', 'PARTIAL'])
         
         # Apply date range filters if provided
         from_date = request.query_params.get('from_date')
@@ -348,12 +302,9 @@ class DashboardStatsViewSet(viewsets.ReadOnlyModelViewSet):
     def stats_by_date_range(self, request):
         """
         Get comprehensive stats for a specific date range
-        Supports from_date and to_date parameters
-        Shows all data instead of just last week
         """
         from apps.lr.models import LorryReceipt
         from apps.hpa.models import HirePaymentAdvice
-        from apps.billing.models import Bill, BillLineItem
         
         user = request.user
         
@@ -362,7 +313,6 @@ class DashboardStatsViewSet(viewsets.ReadOnlyModelViewSet):
         to_date = request.query_params.get('to_date')
         
         if not from_date or not to_date:
-            # Default to all time if no dates provided
             from_date = date(2000, 1, 1)
             to_date = timezone.now().date()
         
@@ -370,11 +320,9 @@ class DashboardStatsViewSet(viewsets.ReadOnlyModelViewSet):
         if user.can_access_all_branches:
             lr_qs = LorryReceipt.objects.filter(is_deleted=False)
             hpa_qs = HirePaymentAdvice.objects.filter(is_deleted=False)
-            bill_qs = Bill.objects.filter(is_deleted=False)
         elif user.branch:
             lr_qs = LorryReceipt.objects.filter(is_deleted=False, branch=user.branch)
             hpa_qs = HirePaymentAdvice.objects.filter(is_deleted=False, branch=user.branch)
-            bill_qs = Bill.objects.filter(is_deleted=False, branch=user.branch)
         else:
             return Response({
                 'error': 'No branch assigned to user'
@@ -383,7 +331,6 @@ class DashboardStatsViewSet(viewsets.ReadOnlyModelViewSet):
         # Apply date filters
         lr_in_range = lr_qs.filter(lr_date__range=[from_date, to_date])
         hpa_in_range = hpa_qs.filter(hpa_date__range=[from_date, to_date])
-        bill_in_range = bill_qs.filter(bill_date__range=[from_date, to_date])
         
         # Calculate stats
         stats = {
@@ -399,17 +346,9 @@ class DashboardStatsViewSet(viewsets.ReadOnlyModelViewSet):
             },
             'hpas': {
                 'total': hpa_in_range.count(),
-                'pending_bill': hpa_in_range.exclude(
-                    id__in=BillLineItem.objects.values_list('hpa_id', flat=True)
-                ).count(),
                 'total_freight': hpa_in_range.aggregate(total=Sum('lorry_hire_rs'))['total'] or 0,
                 'total_balance': hpa_in_range.aggregate(total=Sum('balance_rs'))['total'] or 0,
             },
-            'bills': {
-                'total': bill_in_range.count(),
-                'total_amount': bill_in_range.aggregate(total=Sum('grand_total'))['total'] or 0,
-                'by_status': dict(bill_in_range.values('status').annotate(count=Count('id')).values_list('status', 'count'))
-            }
         }
         
         return Response(stats)

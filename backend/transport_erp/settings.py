@@ -51,9 +51,6 @@ INSTALLED_APPS = [
     'apps.dashboard',
     'apps.lr',
     'apps.hpa',
-    'apps.billing',
-    'apps.payments',
-    'apps.reports',
     # These will be added as they are developed:
     # 'apps.receipts',
     # 'apps.accounting',

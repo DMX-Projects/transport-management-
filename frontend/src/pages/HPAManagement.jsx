@@ -132,7 +132,6 @@ export default function HPAManagement() {
                             onChange={(e) => setFilters({ ...filters, payment_status: e.target.value })}
                         >
                             <option value="">All Status</option>
-                            <option value="PENDING_BILL">Open (Pending Bill)</option>
                             <option value="PENDING">Pending Payment</option>
                             <option value="PARTIAL">Partially Paid</option>
                             <option value="PAID">Paid</option>

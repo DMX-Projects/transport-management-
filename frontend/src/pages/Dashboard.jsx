@@ -3,10 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import {
     TruckIcon,
     DocumentTextIcon,
-    CurrencyDollarIcon,
     ClockIcon,
 } from '@heroicons/react/24/outline';
-import { useGetDashboardSummaryQuery, useGetHPAsWithoutBillsQuery, useGetPendingLRsQuery, useGetPendingHPAsQuery } from '../features/dashboard/dashboardApi';
+import { useGetDashboardSummaryQuery, useGetPendingLRsQuery, useGetPendingHPAsQuery } from '../features/dashboard/dashboardApi';
 import { useAuth } from '../hooks/useAuth';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -27,7 +26,6 @@ export default function Dashboard() {
     });
     
     const { data: summaryData } = useGetDashboardSummaryQuery();
-    const { data: hpasWithoutBillsData, isLoading: isLoadingHPAs } = useGetHPAsWithoutBillsQuery();
 
     // Search + pagination state for dashboard lists
     const [lrSearch, setLRSearch] = useState('');
@@ -100,15 +98,7 @@ export default function Dashboard() {
             icon: ClockIcon,
             color: '#f59e0b',
             bgColor: '#fffbeb',
-            onClick: () => navigate('/hpa', { state: { filter: { status: 'PENDING_BILL' } } })
-        },
-        {
-            name: "Today's Revenue",
-            value: formatCurrency(currentStats.total_revenue || 0),
-            icon: CurrencyDollarIcon,
-            color: '#22c55e',
-            bgColor: '#f0fdf4',
-            onClick: () => navigate('/billing')
+            onClick: () => navigate('/hpa', { state: { filter: { status: 'PENDING' } } })
         },
     ];
 
@@ -210,14 +200,6 @@ export default function Dashboard() {
                     >
                         <TruckIcon style={{ width: '20px', height: '20px' }} />
                         Create HPA
-                    </button>
-                    <button 
-                        className="btn btn-secondary" 
-                        style={{ justifyContent: 'center' }}
-                        onClick={() => navigate('/billing')}
-                    >
-                        <CurrencyDollarIcon style={{ width: '20px', height: '20px' }} />
-                        Generate Bill
                     </button>
                 </div>
             </div>
@@ -369,33 +351,24 @@ export default function Dashboard() {
                 )}
             </div>
 
-            {/* HPAs Without Bills */}
+            {/* Pending HPAs */}
             <div className="card">
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
                     <div>
                         <h2 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '4px', color: '#111827', display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <ExclamationTriangleIcon style={{ width: '20px', height: '20px', color: '#f59e0b' }} />
-                            Open HPAs (Without Bills)
+                            Pending HPAs
                         </h2>
                         <p style={{ fontSize: '14px', color: '#6b7280' }}>
-                            {isLoadingHPAs ? 'Loading...' : (
-                                hpasWithoutBillsData?.count ? 
-                                    `${hpasWithoutBillsData.count} open HPA${hpasWithoutBillsData.count !== 1 ? 's' : ''} awaiting billing` :
-                                    'All HPAs are billed'
+                            {isLoadingPendingHPAs ? 'Loading...' : (
+                                pendingHPAs?.count ? 
+                                    `${pendingHPAs.count} pending HPA${pendingHPAs.count !== 1 ? 's' : ''}` :
+                                    'No pending HPAs'
                             )}
                         </p>
                     </div>
-                    {hpasWithoutBillsData?.count > 0 && (
-                        <button 
-                            className="btn btn-primary" 
-                            style={{ justifyContent: 'center' }}
-                            onClick={() => navigate('/billing')}
-                        >
-                            Create Bills
-                        </button>
-                    )}
                 </div>
-                {isLoadingHPAs ? (
+                {isLoadingPendingHPAs ? (
                     <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af' }}>
                         Loading HPAs...
                     </div>
@@ -453,7 +426,6 @@ export default function Dashboard() {
                                                 return 'badge-success';
                                             case 'PARTIAL':
                                                 return 'badge-warning';
-                                            case 'PENDING_BILL':
                                             case 'PENDING':
                                                 return 'badge-error';
                                             default:
@@ -465,13 +437,13 @@ export default function Dashboard() {
                                         <tr
                                             key={hpa.id}
                                             style={{
-                                                borderBottom: index < Math.min(hpasWithoutBillsData.hpas.length, 10) - 1 ? '1px solid #f3f4f6' : 'none',
+                                                borderBottom: index < pendingHPAs.results.length - 1 ? '1px solid #f3f4f6' : 'none',
                                                 transition: 'background 0.2s',
                                                 cursor: 'pointer'
                                             }}
                                             onMouseEnter={(e) => e.target.closest('tr').style.background = '#f9fafb'}
                                             onMouseLeave={(e) => e.target.closest('tr').style.background = 'transparent'}
-                                            onClick={() => navigate('/billing')}
+                                            onClick={() => navigate('/hpa')}
                                         >
                                             <td style={{ padding: '16px 12px', fontSize: '14px', fontWeight: 600, color: '#111827' }}>
                                                 {hpa.hpa_number || '-'}
@@ -502,7 +474,7 @@ export default function Dashboard() {
                             <div style={{ padding: '16px', textAlign: 'center', borderTop: '1px solid #e5e7eb' }}>
                                 <button 
                                     className="btn btn-secondary"
-                                    onClick={() => navigate('/billing')}
+                                    onClick={() => navigate('/hpa')}
                                     style={{ fontSize: '14px' }}
                                 >
                                     View All {pendingHPAs?.count} HPAs
@@ -513,8 +485,8 @@ export default function Dashboard() {
                 ) : (
                     <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af' }}>
                         <ExclamationTriangleIcon style={{ width: '48px', height: '48px', color: '#d1d5db', margin: '0 auto 16px' }} />
-                        <p style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>All HPAs are billed</p>
-                        <p style={{ fontSize: '14px' }}>Great job! No pending bills to generate.</p>
+                        <p style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>No Pending HPAs</p>
+                        <p style={{ fontSize: '14px' }}>Great job! All HPAs are up to date.</p>
                     </div>
                 )}
             </div>

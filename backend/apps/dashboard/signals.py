@@ -4,7 +4,6 @@ from django.utils import timezone
 from django.db import transaction
 from apps.lr.models import LorryReceipt
 from apps.hpa.models import HirePaymentAdvice
-from apps.billing.models import Bill
 from apps.masters.models import Truck, Consignor, Party
 from .models import DashboardStats
 
@@ -38,22 +37,16 @@ def _calculate_and_save_stats(stats, branch, user=None):
     stats.pending_pods = 0
     stats.delivered_pods = 0
     
-    # Update Bill statistics
-    bill_queryset = Bill.objects.filter(is_deleted=False)
-    if branch:
-        bill_queryset = bill_queryset.filter(branch=branch)
-    
-    stats.total_bills = bill_queryset.count()
-    stats.pending_bills = bill_queryset.filter(status='PENDING').count()
-    stats.paid_bills = bill_queryset.filter(status='PAID').count()
+    # Billing removed; set Bill stats to zero
+    stats.total_bills = 0
+    stats.pending_bills = 0
+    stats.paid_bills = 0
     
     # Update Financial statistics
     from django.db.models import Sum
     
-    # Total revenue (from bills)
-    stats.total_revenue = bill_queryset.filter(status='PAID').aggregate(
-        total=Sum('grand_total')
-    )['total'] or 0
+    # Total revenue set to zero (billing removed)
+    stats.total_revenue = 0
     
     # Pending payments (from HPAs)
     stats.pending_payments = hpa_queryset.filter(
@@ -179,30 +172,4 @@ def update_stats_on_hpa_delete(sender, instance, **kwargs):
 
 # POD component removed; no POD signals
 
-
-# Bill Signals
-@receiver(post_save, sender=Bill)
-def update_stats_on_bill_save(sender, instance, **kwargs):
-    """Update dashboard stats when Bill is created or updated"""
-    if not instance.is_deleted:
-        user = getattr(instance, '_current_user', None) or instance.updated_by
-        transaction.on_commit(
-            lambda: update_dashboard_stats(
-                branch=instance.branch,
-                date_obj=timezone.now().date(),
-                user=user
-            )
-        )
-
-
-@receiver(post_delete, sender=Bill)
-def update_stats_on_bill_delete(sender, instance, **kwargs):
-    """Update dashboard stats when Bill is deleted"""
-    user = getattr(instance, '_current_user', None) or instance.updated_by
-    transaction.on_commit(
-        lambda: update_dashboard_stats(
-            branch=instance.branch,
-            date_obj=timezone.now().date(),
-            user=user
-        )
-    )
+# Billing removed; no Bill signals

@@ -7,9 +7,6 @@ import Login from './features/auth/Login';
 import Dashboard from './pages/Dashboard';
 import LRManagement from './pages/LRManagement';
 import HPAManagement from './pages/HPAManagement';
-import Payments from './pages/Payments';
-import Billing from './pages/Billing';
-import Reports from './pages/Reports';
 import Masters from './pages/Masters';
 import DashboardLayout from './components/layout/DashboardLayout';
 
@@ -73,45 +70,7 @@ function AppRoutes() {
           </ProtectedRoute>
         } />
 
-        <Route path="/payments" element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <Payments />
-            </DashboardLayout>
-          </ProtectedRoute>
-        } />
 
-        <Route path="/pod" element={
-          <ProtectedRoute>
-            <DashboardLayout>
-                {/* POD removed */}
-            </DashboardLayout>
-          </ProtectedRoute>
-        } />
-
-        <Route path="/billing" element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <Billing />
-            </DashboardLayout>
-          </ProtectedRoute>
-        } />
-
-        <Route path="/receipts" element={
-          <ProtectedRoute>
-            <DashboardLayout>
-                {/* Receipts removed */}
-            </DashboardLayout>
-          </ProtectedRoute>
-        } />
-
-        <Route path="/reports" element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <Reports />
-            </DashboardLayout>
-          </ProtectedRoute>
-        } />
 
         <Route path="/masters" element={
           <ProtectedRoute>

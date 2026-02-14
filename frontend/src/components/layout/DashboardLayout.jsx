@@ -3,11 +3,6 @@ import {
     HomeIcon,
     TruckIcon,
     DocumentTextIcon,
-    CreditCardIcon,
-    DocumentCheckIcon,
-    ReceiptPercentIcon,
-    CurrencyDollarIcon,
-    ChartBarIcon,
     Cog6ToothIcon,
     ArrowLeftOnRectangleIcon,
     Bars3Icon,
@@ -23,9 +18,6 @@ const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
     { name: 'LR Management', href: '/lr', icon: DocumentTextIcon },
     { name: 'HPA Management', href: '/hpa', icon: TruckIcon },
-    { name: 'Payments', href: '/payments', icon: CreditCardIcon },
-    { name: 'Billing', href: '/billing', icon: ReceiptPercentIcon },
-    { name: 'Reports', href: '/reports', icon: ChartBarIcon },
     { name: 'Masters', href: '/masters', icon: Cog6ToothIcon },
 ];
 

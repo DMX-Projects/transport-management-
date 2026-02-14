@@ -218,33 +218,4 @@ class HirePaymentAdviceViewSet(viewsets.ModelViewSet):
                 )
                 return Response(serializer.data, status=status.HTTP_201_CREATED)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    @action(detail=False, methods=['GET'])
-    def without_bills(self, request):
-        """Get all HPAs that don't have bills created yet"""
-        from apps.billing.models import BillLineItem
-        
-        # Get all HPA IDs that are in bills
-        billed_hpa_ids = BillLineItem.objects.filter(
-            is_deleted=False
-        ).values_list('hpa_id', flat=True).distinct()
-        
-        # Get HPAs without bills
-        queryset = self.get_queryset().exclude(id__in=billed_hpa_ids)
-        
-        # Apply date filters if provided
-        from_date = request.query_params.get('from_date')
-        to_date = request.query_params.get('to_date')
-        
-        if from_date:
-            queryset = queryset.filter(hpa_date__gte=from_date)
-        if to_date:
-            queryset = queryset.filter(hpa_date__lte=to_date)
-        
-        serializer = self.get_serializer(queryset, many=True)
-        
-        return Response({
-            'results': serializer.data,
-            'count': queryset.count()
-        })
 

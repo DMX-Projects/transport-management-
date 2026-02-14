@@ -6,8 +6,6 @@ from apps.accounts.models import User
 from apps.masters.models import Branch, Company, Truck, Consignor, Party
 from apps.lr.models import LorryReceipt
 from apps.hpa.models import HirePaymentAdvice
-from apps.payments.models import Payment
-from apps.billing.models import Bill
 import random
 
 class Command(BaseCommand):
@@ -58,14 +56,6 @@ class Command(BaseCommand):
             # Create HPAs
             hpas = self._create_hpas(lrs, branches, users, admin_user)
             self.stdout.write(self.style.SUCCESS(f'✓ Created {len(hpas)} Hire Payment Advices'))
-            
-            # Create Payments
-            payments = self._create_payments(hpas, branches, users, admin_user)
-            self.stdout.write(self.style.SUCCESS(f'✓ Created {len(payments)} Payments'))
-            
-            # Create Bills
-            bills = self._create_bills(hpas, branches, users, admin_user)
-            self.stdout.write(self.style.SUCCESS(f'✓ Created {len(bills)} Bills'))
             
             self.stdout.write(self.style.SUCCESS('\n✓ Sample data seeding completed successfully!'))
         except Exception as e:
@@ -238,97 +228,6 @@ class Command(BaseCommand):
             hpas.append(hpa)
         
         return hpas
-
-    def _create_payments(self, hpas, branches, users, admin_user):
-        payments = []
-        payment_methods = ['CASH', 'CHEQUE', 'UPI', 'BANK_TRANSFER', 'NEFT']
-        
-        for hpa in hpas:
-            num_payments = random.randint(1, 3)
-            for j in range(num_payments):
-                payment_date = hpa.hpa_date + timedelta(days=random.randint(1, 10))
-                upper = max(1000, int(hpa.lorry_hire_rs or 5000))
-                amount = random.randint(1000, upper)
-                # Ensure unique payment prefix per branch to avoid global collisions
-                if hpa.branch:
-                    prefix = hpa.branch.code if getattr(hpa.branch, 'code', None) else f"BR{hpa.branch.id}"
-                    setattr(hpa.branch, 'payment_prefix', prefix)
-                
-                payment = Payment.objects.create(
-                    hpa=hpa,
-                    payment_date=payment_date,
-                    payment_method=random.choice(payment_methods),
-                    amount=amount,
-                    status=random.choice(['PENDING', 'CLEARED']),
-                    branch=hpa.branch,
-                    created_by=random.choice(users),
-                    updated_by=random.choice(users),
-                    remarks=f'Payment {j+1} for {hpa.hpa_number}'
-                )
-                payments.append(payment)
-        
-        return payments
-
-    def _create_bills(self, hpas, branches, users, admin_user):
-        bills = []
-        # Create bills for consignors present in LRs
-        # Collect consignors from LRs linked to HPAs
-        consignor_set = set()
-        for hpa in hpas:
-            if hpa.lr and hpa.lr.consignor:
-                consignor_set.add(hpa.lr.consignor)
-        consignor_list = list(consignor_set)
-        
-        for i in range(min(5, len(consignor_list))):
-            consignor = consignor_list[i]
-            branch = random.choice(branches)
-            # Ensure unique bill prefix per branch to avoid global collisions
-            prefix = branch.code if getattr(branch, 'code', None) else f"BR{branch.id}"
-            setattr(branch, 'bill_prefix', prefix)
-            bill_date = timezone.now().date() - timedelta(days=random.randint(1, 15))
-            
-            bill = Bill.objects.create(
-                bill_date=bill_date,
-                branch=branch,
-                consignor=consignor,
-                created_by=random.choice(users),
-                updated_by=random.choice(users),
-                status=random.choice(['DRAFT', 'GENERATED', 'SENT', 'ACKNOWLEDGED', 'PAID']),
-                sgst_rate=Decimal('9.00'),
-                cgst_rate=Decimal('9.00')
-            )
-            bills.append(bill)
-            
-            # Add 2-4 bill items from LRs of this consignor
-            lr_candidates = [h.lr for h in hpas if h.lr and h.lr.consignor == consignor]
-            random.shuffle(lr_candidates)
-            for lr in lr_candidates[:random.randint(2, 4)]:
-                # Create bill item with random freight rate
-                from apps.billing.models import BillItem
-                BillItem.objects.create(
-                    bill=bill,
-                    lr=lr,
-                    destination=lr.to_location,
-                    quantity_mt=lr.quantity_mt,
-                    freight_rate=random.randint(300, 900),
-                    created_by=random.choice(users),
-                    updated_by=random.choice(users),
-                    remarks=f'Billing for {lr.lr_number}'
-                )
-            
-            # Recalculate totals and optionally mark some bills as PAID with payment_received
-            bill.save()
-            if bill.total_amount > 0 and bill.status == 'PAID':
-                # Simulate partial or full payment received
-                paid = bill.total_amount + bill.sgst_amount + bill.cgst_amount
-                # Receive between 60% and 100%
-                payment_received = paid * Decimal(str(random.uniform(0.6, 1.0)))
-                bill.payment_received = payment_received.quantize(Decimal('0.01'))
-                bill.payment_date = bill.bill_date + timedelta(days=random.randint(1, 10))
-                bill.payment_mode = random.choice(['CASH', 'CHEQUE', 'BANK_TRANSFER'])
-                bill.save()
-        
-        return bills
 
     def _create_users(self, branches, admin_user):
         users_data = [

@@ -192,8 +192,7 @@ class HirePaymentAdvice(BaseModel):
     @property
     def has_bill(self):
         """Check if this HPA has an associated bill"""
-        from apps.billing.models import BillLineItem
-        return BillLineItem.objects.filter(hpa=self).exists()
+        return False
     
     @property
     def is_pending_bill(self):
@@ -261,21 +260,3 @@ class HirePaymentAdvice(BaseModel):
         
         is_new = not self.pk
         super().save(*args, **kwargs)
-        
-        # AUTO-CREATE PAYMENT if advance_paid_rs is set on creation
-        if is_new and self.advance_paid_rs > 0 and self.created_by:
-            from apps.payments.models import Payment
-            # Check if payment already exists
-            if not self.payments.filter(amount=self.advance_paid_rs, status='CLEARED').exists():
-                Payment.objects.create(
-                    hpa=self,
-                    branch=self.branch,
-                    payment_date=self.hpa_date,
-                    payment_method='CASH',
-                    amount=self.advance_paid_rs,
-                    status='CLEARED',
-                    received_by='Driver (Advance)',
-                    remarks='Auto-created advance payment on HPA creation',
-                    created_by=self.created_by,
-                    updated_by=self.created_by
-                )
