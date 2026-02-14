@@ -40,24 +40,6 @@ def generate_bill_pdf(bill):
         fontName='Helvetica-Bold'
     )
     
-    company_style = ParagraphStyle(
-        'CompanyStyle',
-        parent=styles['Heading2'],
-        fontSize=12,
-        textColor=colors.HexColor('#d32f2f'),
-        spaceAfter=2,
-        alignment=TA_CENTER,
-        fontName='Helvetica-Bold'
-    )
-    
-    company_detail_style = ParagraphStyle(
-        'CompanyDetail',
-        parent=styles['Normal'],
-        fontSize=8,
-        spaceAfter=1,
-        alignment=TA_CENTER
-    )
-    
     heading_style = ParagraphStyle(
         'CustomHeading',
         parent=styles['Heading2'],
@@ -75,16 +57,6 @@ def generate_bill_pdf(bill):
         spaceAfter=2,
         alignment=TA_LEFT
     )
-    
-    # Company Header Section
-    company = bill.branch.company
-    story.append(Paragraph("<b>{}</b>".format(company.name), company_style))
-    story.append(Paragraph("Fleet Owners & Transport Contractors", company_detail_style))
-    story.append(Paragraph("Address: {}".format(bill.branch.address), company_detail_style))
-    story.append(Paragraph("City: {} State: {} Pincode: {}".format(bill.branch.city, bill.branch.state, bill.branch.pincode), company_detail_style))
-    story.append(Paragraph("Email: {} | Phone: {}".format(bill.branch.email or company.email, bill.branch.phone or company.phone), company_detail_style))
-    story.append(Paragraph("GSTIN : {}".format(company.gstin), company_detail_style))
-    story.append(Spacer(1, 0.2*inch))
     
     # Header Section
     header_data = [
@@ -144,10 +116,10 @@ def generate_bill_pdf(bill):
     for idx, item in enumerate(bill_items, 1):
         items_data.append([
             str(idx),
-            item.lr.destination if item.lr else item.destination,
+            item.lr.destination if item.lr else item.lr_number,
             str(item.quantity_mt),
-            format_currency(item.freight_rate),
-            format_currency(item.total_amount),
+            format_currency(item.freight_per_unit),
+            format_currency(item.total_freight),
             ''
         ])
     
@@ -265,14 +237,14 @@ def generate_bill_pdf(bill):
     # Build PDF
     doc.build(story)
     buffer.seek(0)
-    return buffer
+    return buffer.getvalue()
 
 
 def format_currency(value):
     """Format decimal value as currency string"""
     if isinstance(value, Decimal):
-        return "Rs. {:,.2f}".format(value)
-    return "Rs. {:,.2f}".format(Decimal(str(value)))
+        return "₹ {:,.2f}".format(value)
+    return "₹ {:,.2f}".format(Decimal(str(value)))
 
 
 def amount_in_words(amount):

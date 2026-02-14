@@ -18,12 +18,7 @@ def _calculate_and_save_stats(stats, branch, user=None):
     
     stats.total_lrs = lr_queryset.count()
     # Pending LRs = LRs without HPA (awaiting HPA creation)
-    # Check both primary_hpas (via lr field) and additional_hpas (via ManyToMany)
-    from django.db.models import Q
-    lrs_with_hpa = LorryReceipt.objects.filter(
-        Q(primary_hpas__isnull=False) | Q(additional_hpas__isnull=False)
-    ).values_list('id', flat=True).distinct()
-    stats.pending_lrs = lr_queryset.exclude(id__in=lrs_with_hpa).exclude(status='CANCELLED').count()
+    stats.pending_lrs = lr_queryset.filter(hpa__isnull=True).exclude(status='CANCELLED').count()
     stats.in_transit_lrs = lr_queryset.filter(status='IN_TRANSIT').count()
     stats.delivered_lrs = lr_queryset.filter(status='DELIVERED').count()
     stats.cancelled_lrs = lr_queryset.filter(status='CANCELLED').count()

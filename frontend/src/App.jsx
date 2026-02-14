@@ -2,22 +2,13 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { Provider, useSelector } from 'react-redux';
 import { store } from './app/store';
 import { selectIsAuthenticated } from './features/auth/authSlice';
-import { Toaster } from 'react-hot-toast';
 
 import Login from './features/auth/Login';
 import Dashboard from './pages/Dashboard';
 import LRManagement from './pages/LRManagement';
-import LRForm from './pages/LRForm';
 import HPAManagement from './pages/HPAManagement';
-import HPAForm from './pages/HPAForm';
-import ActiveHPADashboard from './pages/ActiveHPADashboard';
-import PaymentsUnified from './pages/PaymentsUnified';
-import TruckStatement from './pages/TruckStatement';
-import POD from './pages/POD';
+import Payments from './pages/Payments';
 import Billing from './pages/Billing';
-import BillingTemplates from './pages/BillingTemplates';
-import ClientPayments from './pages/ClientPayments';
-import OutstandingReports from './pages/OutstandingReports';
 import Reports from './pages/Reports';
 import Masters from './pages/Masters';
 import DashboardLayout from './components/layout/DashboardLayout';
@@ -49,38 +40,6 @@ function CatchAllRedirect() {
 function AppRoutes() {
   return (
     <Router>
-      {/* Toast Notifications */}
-      <Toaster
-        position="top-right"
-        reverseOrder={false}
-        toastOptions={{
-          // Default options
-          duration: 4000,
-          style: {
-            background: '#fff',
-            color: '#363636',
-            padding: '16px',
-            borderRadius: '8px',
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-          },
-          // Success toast style
-          success: {
-            duration: 3000,
-            iconTheme: {
-              primary: '#10b981',
-              secondary: '#fff',
-            },
-          },
-          // Error toast style
-          error: {
-            duration: 5000,
-            iconTheme: {
-              primary: '#ef4444',
-              secondary: '#fff',
-            },
-          },
-        }}
-      />
       <Routes>
         {/* Public Routes */}
         <Route path="/login" element={
@@ -106,22 +65,6 @@ function AppRoutes() {
           </ProtectedRoute>
         } />
 
-        <Route path="/lr/create" element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <LRForm />
-            </DashboardLayout>
-          </ProtectedRoute>
-        } />
-
-        <Route path="/lr/edit/:id" element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <LRForm />
-            </DashboardLayout>
-          </ProtectedRoute>
-        } />
-
         <Route path="/hpa" element={
           <ProtectedRoute>
             <DashboardLayout>
@@ -130,47 +73,10 @@ function AppRoutes() {
           </ProtectedRoute>
         } />
 
-        <Route path="/hpa/create" element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <HPAForm />
-            </DashboardLayout>
-          </ProtectedRoute>
-        } />
-
-        <Route path="/hpa/edit/:id" element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <HPAForm />
-            </DashboardLayout>
-          </ProtectedRoute>
-        } />
-
-        <Route path="/active-hpas" element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <ActiveHPADashboard />
-            </DashboardLayout>
-          </ProtectedRoute>
-        } />
-
         <Route path="/payments" element={
           <ProtectedRoute>
             <DashboardLayout>
-              <PaymentsUnified />
-            </DashboardLayout>
-          </ProtectedRoute>
-        } />
-
-        {/* Redirect old truck-payments route to unified payments */}
-        <Route path="/truck-payments" element={
-          <Navigate to="/payments" replace />
-        } />
-
-        <Route path="/truck-statement" element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <TruckStatement />
+              <Payments />
             </DashboardLayout>
           </ProtectedRoute>
         } />
@@ -178,7 +84,7 @@ function AppRoutes() {
         <Route path="/pod" element={
           <ProtectedRoute>
             <DashboardLayout>
-              <POD />
+                {/* POD removed */}
             </DashboardLayout>
           </ProtectedRoute>
         } />
@@ -187,22 +93,6 @@ function AppRoutes() {
           <ProtectedRoute>
             <DashboardLayout>
               <Billing />
-            </DashboardLayout>
-          </ProtectedRoute>
-        } />
-
-        <Route path="/billing-templates" element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <BillingTemplates />
-            </DashboardLayout>
-          </ProtectedRoute>
-        } />
-
-        <Route path="/client-payments" element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <ClientPayments />
             </DashboardLayout>
           </ProtectedRoute>
         } />
@@ -219,14 +109,6 @@ function AppRoutes() {
           <ProtectedRoute>
             <DashboardLayout>
               <Reports />
-            </DashboardLayout>
-          </ProtectedRoute>
-        } />
-
-        <Route path="/outstanding-reports" element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <OutstandingReports />
             </DashboardLayout>
           </ProtectedRoute>
         } />

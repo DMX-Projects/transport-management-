@@ -1,13 +1,11 @@
 import { useState, useEffect } from 'react';
-import toast from 'react-hot-toast';
-import { useGetBillsQuery, useCreateBillMutation, useUpdateBillMutation, useGetBillItemsQuery, useCreateBillItemMutation, useGetHPADetailsForBillingQuery, useGetTemplatesForConsignorQuery, useGetDefaultTemplatesQuery, useGetUnbilledInvoicesQuery } from '../features/billing/billingApi';
+import { useGetBillsQuery, useCreateBillMutation, useUpdateBillMutation, useGetBillItemsQuery, useCreateBillItemMutation, useGetHPADetailsForBillingQuery } from '../features/billing/billingApi';
 import { useAuth } from '../hooks/useAuth';
 import { useGetLRsQuery } from '../features/lr/lrApi';
 import { useGetConsignorsQuery } from '../features/masters/mastersApi';
 import { useGetBranchesQuery } from '../features/masters/mastersApi';
-import { useGetHPAsWithoutBillsQuery } from '../features/hpa/hpaApi';
-import { useDownloadBillPdfSyncMutation } from '../features/reports/reportsApi';
-import { XMarkIcon, PlusIcon, MagnifyingGlassIcon, DocumentTextIcon, InformationCircleIcon, ArrowDownTrayIcon, EyeIcon, ShareIcon } from '@heroicons/react/24/outline';
+import { useGetHPAsQuery } from '../features/hpa/hpaApi';
+import { XMarkIcon, PlusIcon, MagnifyingGlassIcon, DocumentTextIcon, PencilIcon, InformationCircleIcon } from '@heroicons/react/24/outline';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import SearchableSelect from '../components/SearchableSelect';
 import { useSearchableSelect } from '../hooks/useSearchableSelect';
@@ -18,70 +16,16 @@ export default function Billing() {
     const [searchTerm, setSearchTerm] = useState('');
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(25);
-    const [downloadingBillId, setDownloadingBillId] = useState(null);
 
     const debouncedSearch = useDebouncedValue(searchTerm, 300);
 
     const { data: billsData, isLoading: isLoadingBills } = useGetBillsQuery({ ...filters, search: debouncedSearch, page, page_size: pageSize });
     const [createBill, { isLoading: isCreating }] = useCreateBillMutation();
     const [updateBill, { isLoading: isUpdating }] = useUpdateBillMutation();
-    const [downloadBillPdfSync, { isLoading: isDownloading }] = useDownloadBillPdfSyncMutation();
+    const { canEdit } = useAuth();
 
     // Extract arrays from API response
     const bills = Array.isArray(billsData) ? billsData : (billsData?.results || []);
-
-    const handleDownloadBillPdf = async (billId) => {
-        try {
-            setDownloadingBillId(billId);
-            const loadingToast = toast.loading('Generating PDF...');
-            const blob = await downloadBillPdfSync(billId).unwrap();
-            
-            // Create download link
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `bill_${billId}.pdf`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(url);
-            toast.success('PDF downloaded successfully', { id: loadingToast });
-        } catch (error) {
-            console.error('PDF download error:', error);
-            toast.error(error?.data?.detail || error.message || 'Failed to download PDF', { 
-                id: error.loadingToast 
-            });
-        } finally {
-            setDownloadingBillId(null);
-        }
-    };
-
-    const handleViewBillPdf = async (billId) => {
-        try {
-            const blob = await downloadBillPdfSync(billId).unwrap();
-            const url = window.URL.createObjectURL(blob);
-            window.open(url, '_blank');
-            setTimeout(() => window.URL.revokeObjectURL(url), 100);
-            toast.success('PDF opened in new tab');
-        } catch (error) {
-            console.error('PDF view error:', error);
-            toast.error(error?.data?.detail || error.message || 'Failed to view PDF');
-        }
-    };
-
-    const handleShareBillPdf = async (billId, billNumber) => {
-        try {
-            const blob = await downloadBillPdfSync(billId).unwrap();
-            const url = window.URL.createObjectURL(blob);
-            const message = `Bill ${billNumber} - Click to download: ${url}`;
-            const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-            window.open(whatsappUrl, '_blank');
-            setTimeout(() => window.URL.revokeObjectURL(url), 5000);
-        } catch (error) {
-            console.error('PDF share error:', error);
-            alert('Failed to share PDF: ' + (error?.data?.detail || error.message || 'Unknown error'));
-        }
-    };
 
     const handleCreateBill = async (formData) => {
         try {
@@ -245,49 +189,15 @@ export default function Billing() {
                                             </span>
                                         </td>
                                         <td style={{ padding: '16px 12px', textAlign: 'center' }}>
-                                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                                            {canEdit && (
                                                 <button
-                                                    onClick={() => handleViewBillPdf(bill.id)}
-                                                    style={{ 
-                                                        padding: '6px', 
-                                                        background: 'transparent', 
-                                                        border: 'none', 
-                                                        cursor: 'pointer', 
-                                                        color: '#3b82f6'
-                                                    }}
-                                                    title="View PDF"
+                                                    onClick={() => {/* Edit functionality - to be implemented */}}
+                                                    style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#6366f1' }}
+                                                    title="Edit Bill (Only SUPER_ADMIN)"
                                                 >
-                                                    <EyeIcon style={{ width: '18px', height: '18px' }} />
+                                                    <PencilIcon style={{ width: '18px', height: '18px' }} />
                                                 </button>
-                                                <button
-                                                    onClick={() => handleDownloadBillPdf(bill.id)}
-                                                    disabled={isDownloading || downloadingBillId === bill.id}
-                                                    style={{ 
-                                                        padding: '6px', 
-                                                        background: 'transparent', 
-                                                        border: 'none', 
-                                                        cursor: isDownloading || downloadingBillId === bill.id ? 'not-allowed' : 'pointer', 
-                                                        color: isDownloading || downloadingBillId === bill.id ? '#d1d5db' : '#10b981',
-                                                        opacity: isDownloading || downloadingBillId === bill.id ? 0.6 : 1
-                                                    }}
-                                                    title={downloadingBillId === bill.id ? 'Downloading...' : 'Download PDF'}
-                                                >
-                                                    <ArrowDownTrayIcon style={{ width: '18px', height: '18px' }} />
-                                                </button>
-                                                <button
-                                                    onClick={() => handleShareBillPdf(bill.id, bill.bill_number)}
-                                                    style={{ 
-                                                        padding: '6px', 
-                                                        background: 'transparent', 
-                                                        border: 'none', 
-                                                        cursor: 'pointer', 
-                                                        color: '#25D366'
-                                                    }}
-                                                    title="Share on WhatsApp"
-                                                >
-                                                    <ShareIcon style={{ width: '18px', height: '18px' }} />
-                                                </button>
-                                            </div>
+                                            )}
                                         </td>
                                     </tr>
                                 ))}
@@ -315,12 +225,20 @@ function CreateBillModal({ onClose, onSubmit, isLoading }) {
     const { data: lrsData } = useGetLRsQuery(); // Get all LRs - filter by consignor in component
     const [hpaSearch, setHpaSearch] = useState('');
     const [hpaPage, setHpaPage] = useState(1);
+    const { data: hpasData } = useGetHPAsQuery({ search: hpaSearch, page: hpaPage, page_size: 10 }); // Backend-driven search & pagination
     const { isSuperAdmin, user } = useAuth(); // Get current user role
+    
+    const branchSearch = useSearchableSelect('/masters/branches/');
+    const consignorSearch = useSearchableSelect('/masters/consignors/');
+    
+    const consignors = Array.isArray(consignorsData) ? consignorsData : (consignorsData?.results || []);
+    const branches = Array.isArray(branchesData) ? branchesData : (branchesData?.results || []);
+    const lrs = Array.isArray(lrsData) ? lrsData : (lrsData?.results || []);
+    const hpas = Array.isArray(hpasData) ? hpasData : (hpasData?.results || []);
 
     const [formData, setFormData] = useState({
         branch: isSuperAdmin ? '' : String(user?.branch?.id || ''), // SuperAdmin must select; Branch users auto-assigned
         consignor: '',
-        billing_template: '', // Phase 3: Template selection
         bill_date: new Date().toISOString().split('T')[0],
         from_date: '',
         to_date: '',
@@ -334,63 +252,13 @@ function CreateBillModal({ onClose, onSubmit, isLoading }) {
         status: 'DRAFT',
         remarks: '',
         consignor_note: '',
-        sgst_rate: 9.0,  // Can be overridden by template
-        cgst_rate: 9.0,  // Can be overridden by template
     });
 
-    // Fetch templates for selected consignor
-    const { data: templatesData } = useGetTemplatesForConsignorQuery(
-        formData.consignor,
-        { skip: !formData.consignor }
-    );
-    const { data: defaultTemplatesData } = useGetDefaultTemplatesQuery(undefined, { skip: !!formData.consignor });
-    
-    const templates = formData.consignor 
-        ? (templatesData || [])
-        : (defaultTemplatesData || []);
-
-    // Branch for HPA list: use formData.branch so dropdown and query stay in sync
-    const branchIdForHpa = formData.branch != null && formData.branch !== '' ? String(formData.branch) : null;
-
-    // Build query params for HPA fetch - all unbilled HPAs for selected branch
-    const hpaQueryParams = branchIdForHpa
-        ? { branch: branchIdForHpa, search: hpaSearch, page: hpaPage, page_size: 50 }
-        : { search: hpaSearch, page: hpaPage, page_size: 50 };
-
-    const { data: hpasData } = useGetHPAsWithoutBillsQuery(
-        hpaQueryParams,
-        { skip: isSuperAdmin && !branchIdForHpa } // Only skip for SuperAdmin when no branch selected
-    );
-
-    // Get unbilled invoices (filtered by consignor if selected)
-    const { data: unbilledInvoicesData } = useGetUnbilledInvoicesQuery(
-        { consignor_id: formData.consignor || undefined },
-        { skip: !formData.consignor }
-    );
-    const unbilledInvoices = unbilledInvoicesData || [];
-
-    const branchSearch = useSearchableSelect('/masters/branches/');
-    const consignorSearch = useSearchableSelect('/masters/consignors/');
-
-    const consignors = Array.isArray(consignorsData) ? consignorsData : (consignorsData?.results || []);
-    const branches = Array.isArray(branchesData) ? branchesData : (branchesData?.results || []);
-    const lrs = Array.isArray(lrsData) ? lrsData : (lrsData?.results || []);
-    const hpas = Array.isArray(hpasData)
-        ? hpasData
-        : (Array.isArray(hpasData?.results)
-            ? hpasData.results
-            : (Array.isArray(hpasData?.hpas)
-                ? hpasData.hpas
-                : (Array.isArray(hpasData?.hpas?.results)
-                    ? hpasData.hpas.results
-                    : [])));
-
-    const [billItems, setBillItems] = useState([]); // Array of { lr, destination, quantity_mt, freight_rate, total_amount, remarks, hpa_invoice }
+    const [billItems, setBillItems] = useState([]); // Array of { lr, destination, quantity_mt, freight_rate, total_amount, remarks }
     const [selectedConsignor, setSelectedConsignor] = useState(null);
     const [availableLRs, setAvailableLRs] = useState([]); // LRs for selected consignor
     const [selectedHPAId, setSelectedHPAId] = useState('');
-    const [selectedInvoiceIds, setSelectedInvoiceIds] = useState([]); // Selected invoice IDs
-    const [useInvoiceMode, setUseInvoiceMode] = useState(false); // Toggle between HPA mode and Invoice mode
+    const { data: hpaDetails } = useGetHPADetailsForBillingQuery(selectedHPAId, { skip: !selectedHPAId });
 
     // Get selected consignor details
     useEffect(() => {
@@ -414,51 +282,8 @@ function CreateBillModal({ onClose, onSubmit, isLoading }) {
         }
     }, [formData.consignor, consignors, lrs]);
 
-    // Auto-select default template when templates load
-    useEffect(() => {
-        if (templates && templates.length > 0 && !formData.billing_template) {
-            const defaultTemplate = templates.find(t => t.is_default) || templates[0];
-            if (defaultTemplate) {
-                setFormData(prev => ({
-                    ...prev,
-                    billing_template: defaultTemplate.id,
-                }));
-            }
-        }
-    }, [templates, formData.billing_template]);
-
-    // Apply template settings when template is selected
-    const handleTemplateChange = (templateId) => {
-        const selectedTemplate = templates.find(t => t.id === parseInt(templateId));
-        if (selectedTemplate && selectedTemplate.tax_configuration) {
-            const taxConfig = selectedTemplate.tax_configuration;
-            setFormData(prev => ({
-                ...prev,
-                billing_template: templateId,
-                hsn_sac_code: taxConfig.hsn_sac_code || prev.hsn_sac_code,
-                sgst_rate: taxConfig.sgst_rate || prev.sgst_rate,
-                cgst_rate: taxConfig.cgst_rate || prev.cgst_rate,
-            }));
-        } else {
-            setFormData(prev => ({
-                ...prev,
-                billing_template: templateId,
-            }));
-        }
-    };
-
     const handleChange = (e) => {
-        const { name, value } = e.target;
-        
-        // If branch changes, clear HPA selection and bill items
-        if (name === 'branch') {
-            setSelectedHPAId(''); // Clear HPA when branch changes
-            setBillItems([]);
-            setHpaSearch('');
-            setHpaPage(1);
-        }
-        
-        setFormData({ ...formData, [name]: value });
+        setFormData({ ...formData, [e.target.name]: e.target.value });
     };
 
     const handleAddBillItem = () => {
@@ -508,158 +333,21 @@ function CreateBillModal({ onClose, onSubmit, isLoading }) {
         return { totalQty, totalAmount, sgstAmount, cgstAmount, grandTotal };
     };
 
-    // Auto-populate bill data from selected HPA (all invoices and their LRs)
+    // Auto-populate bill data from selected HPA (LR, destination, qty, rate)
     useEffect(() => {
-        if (!selectedHPAId || useInvoiceMode) return; // Skip if in invoice mode
+        if (!selectedHPAId) return;
         const hpa = hpas.find(h => h.id === parseInt(selectedHPAId));
         if (!hpa) return;
-        
+        const lr = lrs.find(l => l.id === (hpa.lr || hpa.lr_id));
+        if (!lr) return;
+        // Update consignor from LR
+        setFormData(prev => ({ ...prev, consignor: lr.consignor || prev.consignor }));
+        // Set single item derived from HPA/LR
+        const qty = lr.quantity_mt || '';
         const rate = hpa.rate_per_tonne || '';
-        const allLrs = [];
-        
-        // Priority 1: Get LRs from HPA invoices (if invoices exist)
-        const hpaInvoices = Array.isArray(hpa.invoices) ? hpa.invoices : [];
-        
-        if (hpaInvoices.length > 0) {
-            // HPA has invoices - get LRs from each invoice
-            hpaInvoices.forEach(invoice => {
-                const invoiceLrs = invoice.lrs || [];
-                const invoiceLrIds = invoice.lr_ids || [];
-                
-                // Get full LR objects
-                const lrsToProcess = invoiceLrs.length > 0 
-                    ? invoiceLrs 
-                    : invoiceLrIds.map(id => lrs.find(lr => lr.id === id)).filter(Boolean);
-                
-                lrsToProcess.forEach(lr => {
-                    // Avoid duplicates
-                    if (!allLrs.find(existing => existing.lr_id === lr.id && existing.invoice_id === invoice.id)) {
-                        allLrs.push({
-                            lr_id: lr.id,
-                            lr: lr,
-                            invoice_id: invoice.id,
-                            invoice_number: invoice.invoice_number,
-                            destination: invoice.to_location || invoice.destination || lr.to_location || lr.destination || '',
-                            quantity_mt: invoice.quantity_mt || lr.quantity_mt || lr.total_quantity_mt || '',
-                            freight_rate: rate,
-                            total_amount: '',
-                            remarks: invoice.remarks || ''
-                        });
-                    }
-                });
-            });
-        } else {
-            // Fallback: HPA has no invoices - use direct LRs from HPA
-            const hpaLrs = Array.isArray(hpa.lrs) && hpa.lrs.length > 0 ? hpa.lrs : null;
-            const fallbackLr = lrs.find(l => l.id === (hpa.lr || hpa.lr_id));
-            const linkedLrs = hpaLrs || (fallbackLr ? [fallbackLr] : []);
-            
-            linkedLrs.forEach(lr => {
-                allLrs.push({
-                    lr_id: lr.id,
-                    lr: lr,
-                    invoice_id: null, // No invoice
-                    invoice_number: null,
-                    destination: lr.to_location || lr.destination || '',
-                    quantity_mt: lr.total_quantity_mt || lr.quantity_mt || '',
-                    freight_rate: rate,
-                    total_amount: '',
-                    remarks: ''
-                });
-            });
-        }
-        
-        if (allLrs.length === 0) return;
-
-        // Update consignor from first LR
-        const firstLr = allLrs[0].lr;
-        if (firstLr?.consignor) {
-            setFormData(prev => ({ ...prev, consignor: firstLr.consignor || prev.consignor }));
-        }
-
-        // Create bill items from all LRs (with invoice references if available)
-        const items = allLrs.map(item => {
-            const qty = parseFloat(item.quantity_mt) || 0;
-            const total = qty && rate ? (qty * parseFloat(rate)).toFixed(2) : '';
-            
-            return {
-                lr: item.lr_id,
-                destination: item.destination,
-                quantity_mt: item.quantity_mt,
-                freight_rate: item.freight_rate,
-                total_amount: total,
-                remarks: item.remarks,
-                hpa_invoice: item.invoice_id // Link to invoice if available
-            };
-        });
-        
-        setBillItems(items);
-    }, [selectedHPAId, hpas, lrs, useInvoiceMode]);
-
-    // Auto-populate bill data from selected invoices
-    useEffect(() => {
-        if (!useInvoiceMode || selectedInvoiceIds.length === 0) return;
-        
-        const selectedInvoices = unbilledInvoices.filter(inv => selectedInvoiceIds.includes(inv.id));
-        if (selectedInvoices.length === 0) return;
-
-        // Get all LRs from selected invoices
-        const allLrs = [];
-        selectedInvoices.forEach(invoice => {
-            // Get LRs from invoice - could be in lrs array or lr_ids
-            const invoiceLrs = invoice.lrs || [];
-            const lrIds = invoice.lr_ids || [];
-            
-            // If we have LR IDs but not full LR objects, fetch them
-            const lrsToProcess = invoiceLrs.length > 0 
-                ? invoiceLrs 
-                : lrIds.map(id => lrs.find(lr => lr.id === id)).filter(Boolean);
-            
-            lrsToProcess.forEach(lr => {
-                // Check if this LR is already added (avoid duplicates)
-                if (!allLrs.find(existing => existing.lr_id === lr.id)) {
-                    allLrs.push({
-                        lr_id: lr.id,
-                        lr: lr,
-                        invoice_id: invoice.id,
-                        invoice_number: invoice.invoice_number,
-                        destination: invoice.to_location || invoice.destination || lr.to_location || lr.destination || '',
-                        quantity_mt: invoice.quantity_mt || lr.quantity_mt || lr.total_quantity_mt || '',
-                        freight_rate: '', // Will need to be entered manually or from HPA
-                        total_amount: '',
-                        remarks: invoice.remarks || ''
-                    });
-                }
-            });
-        });
-
-        // Update consignor from first invoice's HPA or first LR
-        if (selectedInvoices.length > 0) {
-            const firstInvoice = selectedInvoices[0];
-            const consignorId = firstInvoice.hpa?.consignor || 
-                               (allLrs.length > 0 && allLrs[0].lr?.consignor) ||
-                               null;
-            if (consignorId) {
-                setFormData(prev => ({ 
-                    ...prev, 
-                    consignor: consignorId || prev.consignor 
-                }));
-            }
-        }
-
-        // Create bill items from LRs
-        const items = allLrs.map(item => ({
-            lr: item.lr_id,
-            destination: item.destination,
-            quantity_mt: item.quantity_mt,
-            freight_rate: item.freight_rate,
-            total_amount: item.total_amount,
-            remarks: item.remarks,
-            hpa_invoice: item.invoice_id
-        }));
-
-        setBillItems(items);
-    }, [selectedInvoiceIds, unbilledInvoices, useInvoiceMode, lrs]);
+        const total = qty && rate ? (parseFloat(qty) * parseFloat(rate)).toFixed(2) : '';
+        setBillItems([{ lr: lr.id, destination: lr.to_location || '', quantity_mt: qty, freight_rate: rate, total_amount: total, remarks: '' }]);
+    }, [selectedHPAId, hpas, lrs]);
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -678,7 +366,6 @@ function CreateBillModal({ onClose, onSubmit, isLoading }) {
                 quantity_mt: parseFloat(item.quantity_mt),
                 freight_rate: parseFloat(item.freight_rate),
                 total_amount: parseFloat(item.total_amount),
-                hpa_invoice: item.hpa_invoice ? parseInt(item.hpa_invoice) : null,
                 remarks: item.remarks || '',
             })),
         };
@@ -764,208 +451,28 @@ function CreateBillModal({ onClose, onSubmit, isLoading }) {
                             </div>
                         )}
 
-                        {/* Mode Toggle: HPA vs Invoice */}
-                        <div style={{ gridColumn: 'span 2', marginBottom: '8px' }}>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Selection Mode
-                            </label>
-                            <div style={{ display: 'flex', gap: '12px' }}>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setUseInvoiceMode(false);
-                                        setSelectedInvoiceIds([]);
-                                        setSelectedHPAId('');
-                                        setBillItems([]);
-                                    }}
-                                    style={{
-                                        padding: '10px 20px',
-                                        borderRadius: '8px',
-                                        border: `2px solid ${!useInvoiceMode ? '#3b82f6' : '#e5e7eb'}`,
-                                        background: !useInvoiceMode ? '#eff6ff' : 'white',
-                                        color: !useInvoiceMode ? '#3b82f6' : '#6b7280',
-                                        fontWeight: !useInvoiceMode ? 600 : 400,
-                                        cursor: 'pointer',
-                                        transition: 'all 0.2s'
-                                    }}
-                                >
-                                    Select by HPA
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setUseInvoiceMode(true);
-                                        setSelectedHPAId('');
-                                        setBillItems([]);
-                                    }}
-                                    style={{
-                                        padding: '10px 20px',
-                                        borderRadius: '8px',
-                                        border: `2px solid ${useInvoiceMode ? '#3b82f6' : '#e5e7eb'}`,
-                                        background: useInvoiceMode ? '#eff6ff' : 'white',
-                                        color: useInvoiceMode ? '#3b82f6' : '#6b7280',
-                                        fontWeight: useInvoiceMode ? 600 : 400,
-                                        cursor: 'pointer',
-                                        transition: 'all 0.2s'
-                                    }}
-                                >
-                                    Select by Invoice
-                                </button>
-                            </div>
-                        </div>
-
                         {/* Select HPA to auto-fill LR details */}
-                        {!useInvoiceMode && (
                         <div style={{ gridColumn: 'span 2' }}>
                             <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
                                 HPA (Auto-fill Bill Items) *
                             </label>
-                            {isSuperAdmin && !branchIdForHpa ? (
-                                <div style={{ padding: '12px', background: '#fef3c7', borderRadius: '8px', border: '1px solid #fbbf24' }}>
-                                    <p style={{ fontSize: '13px', color: '#92400e', margin: 0 }}>
-                                        ⚠️ Please select a branch first to see available HPAs without bills
-                                    </p>
-                                </div>
-                            ) : (
-                                <>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '8px', marginBottom: '8px' }}>
-                                        <input className="input" placeholder="Search HPA number..." value={hpaSearch} onChange={(e) => { setHpaSearch(e.target.value); setHpaPage(1); }} />
-                                        <button type="button" className="btn btn-secondary" disabled={!hpasData?.previous || hpaPage <= 1} onClick={() => setHpaPage(p => Math.max(1, p - 1))}>Prev</button>
-                                        <button type="button" className="btn btn-secondary" disabled={!hpasData?.next} onClick={() => setHpaPage(p => p + 1)}>Next</button>
-                                    </div>
-                                    {hpas.length === 0 ? (
-                                        <div style={{ padding: '12px', background: '#fef3c7', borderRadius: '8px', border: '1px solid #fbbf24' }}>
-                                            <p style={{ fontSize: '13px', color: '#92400e', margin: 0, marginBottom: '8px' }}>
-                                                No unbilled HPAs for this branch.
-                                            </p>
-                                            <p style={{ fontSize: '12px', color: '#92400e', margin: 0 }}>
-                                                Either all HPAs already have bills, or there are no HPAs for this branch. Create new HPAs in <strong>HPA Management</strong> (without creating a bill for them) to see them here.
-                                            </p>
-                                        </div>
-                                    ) : (
-                                        <select className="input" value={selectedHPAId} onChange={(e) => setSelectedHPAId(e.target.value)} required>
-                                            <option value="">Select HPA (only HPAs without bills)</option>
-                                            {hpas.map(h => {
-                                                const lrList = Array.isArray(h.lrs) ? h.lrs : [];
-                                                const lrNumbers = lrList.length > 0
-                                                    ? lrList.map(lr => lr.lr_number).filter(Boolean).join(', ')
-                                                    : (h.lr_number ? h.lr_number : 'N/A');
-                                                const lrCountLabel = lrList.length > 0 ? `${lrList.length} LR${lrList.length > 1 ? 's' : ''}` : '1 LR';
-                                                const routeLabel = (h.from_location || h.to_location)
-                                                    ? `${h.from_location || '-'} → ${h.to_location || '-'}`
-                                                    : '';
-                                                const rateLabel = h.rate_per_tonne ? `₹${h.rate_per_tonne}/MT` : '';
-                                                const pieces = [
-                                                    h.hpa_number,
-                                                    lrCountLabel,
-                                                    `LR: ${lrNumbers}`,
-                                                    routeLabel,
-                                                    rateLabel,
-                                                    h.truck_number ? `Truck ${h.truck_number}` : ''
-                                                ].filter(Boolean);
-                                                return (
-                                                    <option key={h.id} value={h.id}>
-                                                        {pieces.join(' • ')}
-                                                    </option>
-                                                );
-                                            })}
-                                        </select>
-                                    )}
-                                </>
-                            )}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '8px', marginBottom: '8px' }}>
+                                <input className="input" placeholder="Search HPA number..." value={hpaSearch} onChange={(e) => { setHpaSearch(e.target.value); setHpaPage(1); }} />
+                                <button type="button" className="btn btn-secondary" disabled={!hpasData?.previous || hpaPage <= 1} onClick={() => setHpaPage(p => Math.max(1, p - 1))}>Prev</button>
+                                <button type="button" className="btn btn-secondary" disabled={!hpasData?.next} onClick={() => setHpaPage(p => p + 1)}>Next</button>
+                            </div>
+                            <select className="input" value={selectedHPAId} onChange={(e) => setSelectedHPAId(e.target.value)} required>
+                                <option value="">Select HPA</option>
+                                {hpas.map(h => (
+                                    <option key={h.id} value={h.id}>{h.hpa_number} • LR {h.lr_number} • Truck {h.truck_number}</option>
+                                ))}
+                            </select>
                             {selectedHPAId && (
                                 <p style={{ fontSize: '12px', color: '#10b981', marginTop: '4px' }}>
                                     ✓ Items auto-filled from selected HPA. Adjust rate or remarks if needed.
                                 </p>
                             )}
                         </div>
-                        )}
-
-                        {/* Select Invoices to auto-fill LR details */}
-                        {useInvoiceMode && (
-                        <div style={{ gridColumn: 'span 2' }}>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Select Invoices (for which bills have not been created) *
-                            </label>
-                            {!formData.consignor ? (
-                                <div style={{ padding: '12px', background: '#fef3c7', borderRadius: '8px', border: '1px solid #fbbf24' }}>
-                                    <p style={{ fontSize: '13px', color: '#92400e', margin: 0 }}>
-                                        ⚠️ Please select a consignor first to see available invoices
-                                    </p>
-                                </div>
-                            ) : unbilledInvoices.length === 0 ? (
-                                <div style={{ padding: '12px', background: '#fef3c7', borderRadius: '8px', border: '1px solid #fbbf24' }}>
-                                    <p style={{ fontSize: '13px', color: '#92400e', margin: 0, marginBottom: '8px' }}>
-                                        No unbilled invoices for this consignor.
-                                    </p>
-                                    <p style={{ fontSize: '12px', color: '#92400e', margin: 0 }}>
-                                        All invoices for this consignor have already been billed, or there are no invoices yet. Create HPAs with invoices in <strong>HPA Management</strong> to see them here.
-                                    </p>
-                                </div>
-                            ) : (
-                                <div style={{ 
-                                    maxHeight: '300px', 
-                                    overflowY: 'auto', 
-                                    border: '1px solid #e5e7eb', 
-                                    borderRadius: '8px',
-                                    padding: '12px',
-                                    background: '#f9fafb'
-                                }}>
-                                    {unbilledInvoices.map(invoice => (
-                                        <label 
-                                            key={invoice.id}
-                                            style={{ 
-                                                display: 'flex', 
-                                                alignItems: 'center', 
-                                                gap: '12px', 
-                                                padding: '12px',
-                                                marginBottom: '8px',
-                                                background: selectedInvoiceIds.includes(invoice.id) ? '#eff6ff' : 'white',
-                                                border: `2px solid ${selectedInvoiceIds.includes(invoice.id) ? '#3b82f6' : '#e5e7eb'}`,
-                                                borderRadius: '8px',
-                                                cursor: 'pointer',
-                                                transition: 'all 0.2s'
-                                            }}
-                                        >
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedInvoiceIds.includes(invoice.id)}
-                                                onChange={(e) => {
-                                                    if (e.target.checked) {
-                                                        setSelectedInvoiceIds([...selectedInvoiceIds, invoice.id]);
-                                                    } else {
-                                                        setSelectedInvoiceIds(selectedInvoiceIds.filter(id => id !== invoice.id));
-                                                    }
-                                                }}
-                                                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                                            />
-                                            <div style={{ flex: 1 }}>
-                                                <div style={{ fontWeight: 600, color: '#111827', marginBottom: '4px' }}>
-                                                    Invoice: {invoice.invoice_number}
-                                                    {invoice.invoice_date && (
-                                                        <span style={{ fontWeight: 400, color: '#6b7280', marginLeft: '8px' }}>
-                                                            ({new Date(invoice.invoice_date).toLocaleDateString()})
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <div style={{ fontSize: '13px', color: '#6b7280' }}>
-                                                    HPA: {invoice.hpa?.hpa_number || 'N/A'} | 
-                                                    LRs: {invoice.lr_count || 0} | 
-                                                    Destination: {invoice.to_location || invoice.destination || 'N/A'}
-                                                    {invoice.quantity_mt && ` | Qty: ${invoice.quantity_mt} MT`}
-                                                </div>
-                                            </div>
-                                        </label>
-                                    ))}
-                                </div>
-                            )}
-                            {selectedInvoiceIds.length > 0 && (
-                                <p style={{ fontSize: '12px', color: '#10b981', marginTop: '8px' }}>
-                                    ✓ {selectedInvoiceIds.length} invoice(s) selected. Bill items will be auto-filled from associated LRs.
-                                </p>
-                            )}
-                        </div>
-                        )}
 
                         <div>
                             <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
@@ -990,31 +497,6 @@ function CreateBillModal({ onClose, onSubmit, isLoading }) {
                             {selectedConsignor && (
                                 <p style={{ fontSize: '12px', color: '#10b981', marginTop: '4px' }}>
                                     ✓ GSTIN: <strong>{selectedConsignor.gstin}</strong> - {selectedConsignor.address}, {selectedConsignor.city}, {selectedConsignor.state}
-                                </p>
-                            )}
-                        </div>
-
-                        {/* Template Selection - Phase 3 */}
-                        <div style={{ gridColumn: 'span 2' }}>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Billing Template
-                            </label>
-                            <select
-                                name="billing_template"
-                                className="input"
-                                value={formData.billing_template}
-                                onChange={(e) => handleTemplateChange(e.target.value)}
-                            >
-                                <option value="">-- Select Template --</option>
-                                {templates.map(t => (
-                                    <option key={t.id} value={t.id}>
-                                        {t.name} ({t.template_type_display || t.template_type}){t.is_default ? ' ★ Default' : ''}
-                                    </option>
-                                ))}
-                            </select>
-                            {formData.billing_template && (
-                                <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
-                                    Template will determine field visibility and tax rates for this bill
                                 </p>
                             )}
                         </div>
@@ -1089,39 +571,15 @@ function CreateBillModal({ onClose, onSubmit, isLoading }) {
                         {/* Bill Line Items Section */}
                         <div style={{ gridColumn: 'span 2', marginTop: '16px', borderTop: '2px solid #e5e7eb', paddingTop: '20px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                                <div>
-                                    <h3 style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginBottom: '4px' }}>
-                                        Bill Line Items
-                                        {useInvoiceMode && selectedInvoiceIds.length > 0 && (
-                                            <span style={{ fontSize: '14px', fontWeight: 400, color: '#6b7280', marginLeft: '8px' }}>
-                                                (Auto-filled from {selectedInvoiceIds.length} selected invoice{selectedInvoiceIds.length > 1 ? 's' : ''})
-                                            </span>
-                                        )}
-                                        {!useInvoiceMode && selectedHPAId && (
-                                            <span style={{ fontSize: '14px', fontWeight: 400, color: '#6b7280', marginLeft: '8px' }}>
-                                                (Auto-filled from HPA {hpas.find(h => h.id === parseInt(selectedHPAId))?.hpa_number || ''})
-                                            </span>
-                                        )}
-                                    </h3>
-                                    {(useInvoiceMode && selectedInvoiceIds.length > 0) || (!useInvoiceMode && selectedHPAId) ? (
-                                        <p style={{ fontSize: '12px', color: '#10b981', margin: 0 }}>
-                                            ✓ LRs are automatically added from {useInvoiceMode ? 'selected invoices' : 'selected HPA'}. You can edit quantities and rates below.
-                                        </p>
-                                    ) : (
-                                        <p style={{ fontSize: '12px', color: '#6b7280', margin: 0 }}>
-                                            Select an HPA or invoices above to auto-fill bill items, or add manually below.
-                                        </p>
-                                    )}
-                                </div>
+                                <h3 style={{ fontSize: '18px', fontWeight: 600, color: '#111827' }}>Bill Line Items (from HPA)</h3>
                                 <button
                                     type="button"
                                     className="btn btn-secondary"
                                     onClick={handleAddBillItem}
                                     style={{ padding: '8px 16px' }}
-                                    title="Add additional LR entry manually"
                                 >
                                     <PlusIcon style={{ width: '18px', height: '18px' }} />
-                                    Add LR Manually
+                                    Add LR Entry
                                 </button>
                             </div>
 
@@ -1137,10 +595,7 @@ function CreateBillModal({ onClose, onSubmit, isLoading }) {
                                     <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '16px' }}>
                                         <thead>
                                             <tr style={{ borderBottom: '2px solid #e5e7eb', background: '#f9fafb' }}>
-                                                <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: '#6b7280' }}>LR Number</th>
-                                                {(useInvoiceMode && selectedInvoiceIds.length > 0) || (billItems.some(item => item.hpa_invoice)) ? (
-                                                    <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: '#6b7280' }}>Invoice</th>
-                                                ) : null}
+                                                <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: '#6b7280' }}>LR Number (auto)</th>
                                                 <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: '#6b7280' }}>Destination</th>
                                                 <th style={{ padding: '10px', textAlign: 'right', fontSize: '12px', fontWeight: 600, color: '#6b7280' }}>Qty (MT)</th>
                                                 <th style={{ padding: '10px', textAlign: 'right', fontSize: '12px', fontWeight: 600, color: '#6b7280' }}>Freight Rate</th>
@@ -1149,11 +604,7 @@ function CreateBillModal({ onClose, onSubmit, isLoading }) {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {billItems.map((item, index) => {
-                                                const invoice = item.hpa_invoice 
-                                                    ? unbilledInvoices.find(inv => inv.id === item.hpa_invoice)
-                                                    : null;
-                                                return (
+                                            {billItems.map((item, index) => (
                                                 <tr key={index} style={{ borderBottom: '1px solid #f3f4f6' }}>
                                                     <td style={{ padding: '12px' }}>
                                                         <input
@@ -1161,28 +612,9 @@ function CreateBillModal({ onClose, onSubmit, isLoading }) {
                                                             className="input"
                                                             value={(lrs.find(l => l.id === parseInt(item.lr))?.lr_number) || ''}
                                                             readOnly
-                                                            style={{ fontSize: '13px', background: '#f9fafb' }}
+                                                            style={{ fontSize: '13px' }}
                                                         />
                                                     </td>
-                                                    {(useInvoiceMode && selectedInvoiceIds.length > 0) || (billItems.some(item => item.hpa_invoice)) ? (
-                                                        <td style={{ padding: '12px' }}>
-                                                            {invoice ? (
-                                                                <span style={{ 
-                                                                    fontSize: '12px', 
-                                                                    color: '#3b82f6',
-                                                                    fontWeight: 500,
-                                                                    padding: '4px 8px',
-                                                                    background: '#eff6ff',
-                                                                    borderRadius: '4px',
-                                                                    display: 'inline-block'
-                                                                }}>
-                                                                    {invoice.invoice_number}
-                                                                </span>
-                                                            ) : (
-                                                                <span style={{ fontSize: '12px', color: '#9ca3af', fontStyle: 'italic' }}>—</span>
-                                                            )}
-                                                        </td>
-                                                    ) : null}
                                                     <td style={{ padding: '12px' }}>
                                                         <input
                                                             type="text"
@@ -1240,8 +672,7 @@ function CreateBillModal({ onClose, onSubmit, isLoading }) {
                                                         </button>
                                                     </td>
                                                 </tr>
-                                                );
-                                            })}
+                                            ))}
                                         </tbody>
                                     </table>
                                 </div>

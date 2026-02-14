@@ -101,74 +101,6 @@ export const hpaApi = api.injectEndpoints({
             }),
             providesTags: ['HPA'],
         }),
-
-        // ============================================================
-        // PHASE 1: Multiple Invoice Numbers per HPA
-        // ============================================================
-
-        // Get all invoices for an HPA
-        getHPAInvoices: builder.query({
-            query: (hpaId) => ({
-                url: `/hpa/hire-payment-advices/${hpaId}/invoices/`,
-            }),
-            providesTags: (result, error, hpaId) => [{ type: 'HPAInvoice', id: hpaId }],
-            keepUnusedDataFor: 0,
-        }),
-
-        // Add invoice to HPA
-        addHPAInvoice: builder.mutation({
-            query: ({ hpaId, ...data }) => ({
-                url: `/hpa/hire-payment-advices/${hpaId}/add_invoice/`,
-                method: 'POST',
-                body: data,
-            }),
-            invalidatesTags: (result, error, { hpaId }) => [
-                { type: 'HPAInvoice', id: hpaId },
-                { type: 'HPA', id: hpaId },
-                'HPA'
-            ],
-        }),
-
-        // Delete invoice from HPA
-        deleteHPAInvoice: builder.mutation({
-            query: ({ hpaId, invoiceId }) => ({
-                url: `/hpa/hire-payment-advices/${hpaId}/invoices/${invoiceId}/`,
-                method: 'DELETE',
-            }),
-            invalidatesTags: (result, error, { hpaId }) => [
-                { type: 'HPAInvoice', id: hpaId },
-                { type: 'HPA', id: hpaId },
-                'HPA'
-            ],
-        }),
-
-        // ============================================================
-        // PHASE 2: Active HPA Tracking Dashboard
-        // ============================================================
-
-        // Get all active HPAs (no POD received)
-        getActiveHPAs: builder.query({
-            query: (params = {}) => ({
-                url: '/hpa/active-hpas/',
-                params,
-            }),
-            providesTags: ['ActiveHPA', 'HPA'],
-        }),
-
-        // Get active HPA statistics for dashboard
-        getActiveHPAStatistics: builder.query({
-            query: (params = {}) => ({
-                url: '/hpa/active-hpas/statistics/',
-                params,
-            }),
-            providesTags: ['ActiveHPA'],
-        }),
-
-        // Get details for a specific active HPA
-        getActiveHPADetails: builder.query({
-            query: (id) => `/hpa/active-hpas/${id}/details/`,
-            providesTags: (result, error, id) => [{ type: 'ActiveHPA', id }],
-        }),
     }),
 });
 
@@ -185,12 +117,4 @@ export const {
     useGetHPATransactionsQuery,
     useAddHPATransactionMutation,
     useGetHPAsWithoutBillsQuery,
-    // Phase 1: Invoice Management
-    useGetHPAInvoicesQuery,
-    useAddHPAInvoiceMutation,
-    useDeleteHPAInvoiceMutation,
-    // Phase 2: Active HPA Tracking
-    useGetActiveHPAsQuery,
-    useGetActiveHPAStatisticsQuery,
-    useGetActiveHPADetailsQuery,
 } = hpaApi;

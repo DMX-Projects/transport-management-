@@ -4,15 +4,11 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
 from django.http import HttpResponse
-from django.db.models import Q
-from .models import LorryReceipt, LRItem
+from .models import LorryReceipt
 from .serializers import (
     LorryReceiptSerializer,
     LorryReceiptCreateSerializer,
-    LorryReceiptUpdateSerializer,
-    LRItemSerializer,
-    LRItemCreateSerializer,
-    LRItemUpdateSerializer
+    LorryReceiptUpdateSerializer
 )
 from .pdf_generator import generate_lr_pdf
 from apps.common.pagination import StandardResultsSetPagination
@@ -58,8 +54,11 @@ class LorryReceiptViewSet(viewsets.ModelViewSet):
         return LorryReceiptSerializer
     
     def perform_create(self, serializer):
-        # Serializer's create() method already handles created_by and updated_by
-        serializer.save()
+        # Set both created_by and updated_by to current user
+        serializer.save(
+            created_by=self.request.user,
+            updated_by=self.request.user
+        )
     
     def perform_update(self, serializer):
         # Only SUPER_ADMIN can update
@@ -77,7 +76,6 @@ class LorryReceiptViewSet(viewsets.ModelViewSet):
     def without_hpa(self, request):
         """
         Get LRs that don't have HPA created yet
-        Shows ALL LRs without HPA regardless of status
         Filters by branch if provided
         """
         queryset = self.get_queryset()
@@ -87,14 +85,18 @@ class LorryReceiptViewSet(viewsets.ModelViewSet):
         if branch_id:
             queryset = queryset.filter(branch_id=branch_id)
         
-        # Filter out LRs that already have any HPA linked
-        # HPA can be linked either as primary (primary_hpas) or additional (additional_hpas)
-        lrs_with_hpa_ids = queryset.filter(
-            Q(primary_hpas__isnull=False) | Q(additional_hpas__isnull=False)
-        ).values_list('id', flat=True).distinct()
-        queryset = queryset.exclude(id__in=lrs_with_hpa_ids)
+        # Filter out LRs that already have HPA (OneToOne relationship)
+        # Using isnull=True on the reverse relation 'hpa'
+        queryset = queryset.filter(hpa__isnull=True)
         
-        # No status filter - show ALL LRs without HPA regardless of status
+        # Filter by status if provided (optional)
+        status = request.query_params.get('status')
+        if status:
+            queryset = queryset.filter(status=status)
+        else:
+            # Default: Only show LRs in statuses that can have HPA created
+            # PENDING_HPA is the default status for LRs waiting for HPA
+            queryset = queryset.filter(status__in=['PENDING_HPA', 'ISSUED', 'LOADING', 'IN_TRANSIT'])
         
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
@@ -148,85 +150,3 @@ class LorryReceiptViewSet(viewsets.ModelViewSet):
                 {'error': f'Error generating PDF: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
-
-class LRItemViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing LRItems"""
-    queryset = LRItem.objects.filter(is_deleted=False)
-    serializer_class = LRItemSerializer
-    pagination_class = StandardResultsSetPagination
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['lr', 'consignor', 'consignee']
-    search_fields = ['consignor__name', 'consignee__name', 'sap_number', 'lr__lr_number']
-    ordering_fields = ['sequence_number', 'quantity_mt', 'created_at']
-    ordering = ['lr', 'sequence_number', 'id']
-    
-    def get_queryset(self):
-        """Filter by branch based on user permissions"""
-        queryset = super().get_queryset()
-        user = self.request.user
-        
-        if user.can_access_all_branches:
-            return queryset
-        if user.branch:
-            return queryset.filter(lr__branch=user.branch)
-        return queryset.none()
-    
-    def get_serializer_class(self):
-        if self.action == 'create':
-            return LRItemCreateSerializer
-        elif self.action in ['update', 'partial_update']:
-            return LRItemUpdateSerializer
-        return LRItemSerializer
-    
-    def perform_create(self, serializer):
-        serializer.save(
-            created_by=self.request.user,
-            updated_by=self.request.user
-        )
-    
-    def perform_update(self, serializer):
-        serializer.save(updated_by=self.request.user)
-    
-    def destroy(self, request, *args, **kwargs):
-        """Soft delete - ensure at least one item remains"""
-        lr_item = self.get_object()
-        lr = lr_item.lr
-        
-        # Check if can edit
-        if not lr.can_edit_items:
-            return Response(
-                {'error': f'Cannot delete items from LR {lr.lr_number}. Status must be DRAFT or PENDING_HPA.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Check if last item
-        remaining = LRItem.objects.filter(
-            lr=lr,
-            is_deleted=False
-        ).exclude(id=lr_item.id)
-        
-        if not remaining.exists():
-            return Response(
-                {'error': 'Cannot delete last item. LR must have at least one item.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Soft delete
-        lr_item.is_deleted = True
-        lr_item.deleted_at = timezone.now()
-        lr_item.deleted_by = request.user
-        lr_item.save()
-        
-        return Response(status=status.HTTP_204_NO_CONTENT)
-    
-    @action(detail=False, methods=['GET'])
-    def by_lr(self, request):
-        """Get all items for a specific LR"""
-        lr_id = request.query_params.get('lr')
-        if not lr_id:
-            return Response({'error': 'lr parameter required'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        items = self.get_queryset().filter(lr_id=lr_id)
-        serializer = self.get_serializer(items, many=True)
-        return Response(serializer.data)

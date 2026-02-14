@@ -11,27 +11,21 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
 from pathlib import Path
-import os
-from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
-# Load environment variables from .env file
-load_dotenv(BASE_DIR / '.env')
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-import os
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-f=2xlogtmnr3eo!k63um%d3eb65edhdiz823@zmb-fn9!zj7$*')
+SECRET_KEY = 'django-insecure-f=2xlogtmnr3eo!k63um%d3eb65edhdiz823@zmb-fn9!zj7$*'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'False') == 'True'
+DEBUG = True
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '103.65.21.176,localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = []
 
 
 # Application definition
@@ -59,9 +53,7 @@ INSTALLED_APPS = [
     'apps.hpa',
     'apps.billing',
     'apps.payments',
-    'apps.pod',
     'apps.reports',
-    'apps.transactions',
     # These will be added as they are developed:
     # 'apps.receipts',
     # 'apps.accounting',
@@ -200,21 +192,12 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-# CORS Configuration
-CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL', 'False') == 'True'
-CORS_ALLOWED_ORIGINS = [
-    'http://103.65.21.176:5174',
-    'http://103.65.21.176',
-    'http://localhost:5173',
-    'http://localhost:3000',
-    'http://127.0.0.1:5173',
-]
+# CORS Configuration (temporary: allow all during development)
+CORS_ALLOW_ALL_ORIGINS = True
+# If you need credentials (cookies/auth) with CORS, keep this:
 CORS_ALLOW_CREDENTIALS = True
-
+# Optional: trust common dev hosts for CSRF in POST/PUT if needed
 CSRF_TRUSTED_ORIGINS = [
-    'http://103.65.21.176:5174',
-    'http://103.65.21.176:8003',
-    'http://103.65.21.176',
     'http://localhost:3000',
     'http://localhost:5173',
     'http://127.0.0.1:3000',
@@ -230,37 +213,9 @@ SPECTACULAR_SETTINGS = {
 }
 
 # Media Files
+import os
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.getenv('MEDIA_ROOT', os.path.join(BASE_DIR, 'media'))
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # Static Files
-STATIC_ROOT = os.getenv('STATIC_ROOT', os.path.join(BASE_DIR, 'staticfiles'))
-
-# PDF Storage Configuration
-PDF_STORAGE_PATH = os.path.join(BASE_DIR, 'media', 'pdfs')
-PDF_TEMP_PATH = os.path.join(BASE_DIR, 'temp', 'pdfs')
-PDF_CACHE_TIMEOUT = 3600  # 1 hour cache for generated PDFs
-PDF_CLEANUP_DAYS = 7  # Delete PDFs older than 7 days
-
-# Celery Configuration
-CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
-CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = 'UTC'
-CELERY_TASK_TRACK_STARTED = True
-CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes hard limit
-CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60  # 25 minutes soft limit
-CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
-
-# Cache Configuration for PDF tracking
-CACHES = {
-    'default': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': 'redis://127.0.0.1:6379/1',
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-        }
-    }
-}
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')

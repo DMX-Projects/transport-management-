@@ -1,23 +1,18 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useGetHPAsQuery, useCreateHPAMutation, useUpdateHPAMutation, useMarkAsPaidMutation, useGetHPATransactionsQuery, useGetHPAInvoicesQuery, useAddHPAInvoiceMutation, useDeleteHPAInvoiceMutation } from '../features/hpa/hpaApi';
-import { useCreatePODMutation } from '../features/pod/podApi';
+import { useGetHPAsQuery, useCreateHPAMutation, useUpdateHPAMutation, useMarkAsPaidMutation, useGetHPATransactionsQuery } from '../features/hpa/hpaApi';
 import { useGetLRsWithoutHPAQuery } from '../features/lr/lrApi';
 import { useGetBranchesQuery, useGetTrucksQuery } from '../features/masters/mastersApi';
 import { useAuth } from '../hooks/useAuth';
-import { XMarkIcon, PlusIcon, MagnifyingGlassIcon, BanknotesIcon, PencilIcon, ArrowDownTrayIcon, EyeIcon, ShareIcon, DocumentArrowUpIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, PlusIcon, MagnifyingGlassIcon, BanknotesIcon, PencilIcon, ArrowDownTrayIcon, EyeIcon } from '@heroicons/react/24/outline';
 import SearchableSelect from '../components/SearchableSelect';
 import { useSearchableSelect } from '../hooks/useSearchableSelect';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
 export default function HPAManagement() {
-    const navigate = useNavigate();
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [showViewModal, setShowViewModal] = useState(false);
-    const [showAcknowledgeModal, setShowAcknowledgeModal] = useState(false);
     const [selectedHPA, setSelectedHPA] = useState(null);
-    const [acknowledgeHPA, setAcknowledgeHPA] = useState(null);
     const [filters, setFilters] = useState({});
     const [searchTerm, setSearchTerm] = useState('');
     const [page, setPage] = useState(1);
@@ -28,7 +23,6 @@ export default function HPAManagement() {
     const { data: hpasData, isLoading: isLoadingHPAs } = useGetHPAsQuery({ ...filters, search: debouncedSearch, page, page_size: pageSize });
     const [createHPA, { isLoading: isCreating }] = useCreateHPAMutation();
     const [updateHPA, { isLoading: isUpdating }] = useUpdateHPAMutation();
-    const [createPOD, { isLoading: isAcknowledging }] = useCreatePODMutation();
     const { canEdit } = useAuth();
 
     // Extract arrays from API response
@@ -79,29 +73,6 @@ export default function HPAManagement() {
         }
     };
 
-    const handleAcknowledgeDelivery = async (formData) => {
-        try {
-            await createPOD(formData).unwrap();
-            setShowAcknowledgeModal(false);
-            setAcknowledgeHPA(null);
-            alert('✅ Delivery acknowledged successfully!');
-        } catch (error) {
-            console.error('Error acknowledging delivery:', error);
-            let errorMessage = 'Error acknowledging delivery:\n\n';
-            if (error.data && typeof error.data === 'object' && !Array.isArray(error.data)) {
-                Object.entries(error.data).forEach(([field, messages]) => {
-                    const msgArray = Array.isArray(messages) ? messages : [messages];
-                    errorMessage += `• ${field}: ${msgArray.join(', ')}\n`;
-                });
-            } else if (typeof error.data === 'string') {
-                errorMessage += error.data;
-            } else {
-                errorMessage += error.message || 'Unknown error occurred';
-            }
-            alert(errorMessage);
-        }
-    };
-
 
     const getStatusBadgeClass = (status) => {
         switch (status) {
@@ -127,11 +98,7 @@ export default function HPAManagement() {
                     </h1>
                     <p style={{ color: '#6b7280' }}>Create and manage Hire Payment Advices (HPA number matches LR number)</p>
                 </div>
-                <button 
-                    className="btn btn-primary" 
-                    onClick={() => navigate('/hpa/create')}
-                    style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-                >
+                <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
                     <PlusIcon style={{ width: '20px', height: '20px' }} />
                     Create New HPA
                 </button>
@@ -221,20 +188,7 @@ export default function HPAManagement() {
                                         onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                                     >
                                         <td style={{ padding: '16px 12px', fontSize: '14px', fontWeight: 600, color: '#111827' }}>{hpa.hpa_number || '-'}</td>
-                                        <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563' }}>
-                                            {hpa.invoice_count > 0 ? (
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                    <span style={{ maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={hpa.invoice_list}>
-                                                        {hpa.invoice_list?.split(',').slice(0, 2).join(', ')}
-                                                    </span>
-                                                    {hpa.invoice_count > 2 && (
-                                                        <span className="badge badge-info" style={{ fontSize: '10px', padding: '2px 6px' }}>
-                                                            +{hpa.invoice_count - 2}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            ) : (hpa.invoice_number || '-')}
-                                        </td>
+                                        <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563' }}>{hpa.invoice_number || '-'}</td>
                                         <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563' }}>{hpa.hpa_date ? new Date(hpa.hpa_date).toLocaleDateString() : '-'}</td>
                                         <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563', fontWeight: 600 }}>{hpa.lr_number || '-'}</td>
                                         <td style={{ padding: '16px 12px', fontSize: '14px', color: '#4b5563' }}>{hpa.truck_number || '-'}</td>
@@ -279,17 +233,13 @@ export default function HPAManagement() {
                                                 <button
                                                     onClick={() => {
                                                         const token = localStorage.getItem('token');
-                                                        const apiBase = import.meta.env.VITE_API_BASE_URL || (window.location.origin + '/api/v1');
-                                                        const url = `${apiBase}/hpa/hire-payment-advices/${hpa.id}/download_pdf/`;
+                                                        const url = `http://localhost:8000/api/v1/hpa/hire-payment-advices/${hpa.id}/download_pdf/`;
                                                         fetch(url, {
                                                             headers: {
                                                                 'Authorization': `Bearer ${token}`
                                                             }
                                                         })
-                                                        .then(response => {
-                                                            if (!response.ok) throw new Error('Download failed');
-                                                            return response.blob();
-                                                        })
+                                                        .then(response => response.blob())
                                                         .then(blob => {
                                                             const url = window.URL.createObjectURL(blob);
                                                             const a = document.createElement('a');
@@ -302,7 +252,7 @@ export default function HPAManagement() {
                                                         })
                                                         .catch(error => {
                                                             console.error('Error downloading PDF:', error);
-                                                            alert('Error downloading PDF. Please check if the backend is running and try again.');
+                                                            alert('Error downloading PDF. Please try again.');
                                                         });
                                                     }}
                                                     style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#10b981' }}
@@ -310,50 +260,12 @@ export default function HPAManagement() {
                                                 >
                                                     <ArrowDownTrayIcon style={{ width: '18px', height: '18px' }} />
                                                 </button>
-                                                <button
-                                                    onClick={() => {
-                                                        const token = localStorage.getItem('token');
-                                                        const apiBase = import.meta.env.VITE_API_BASE_URL || (window.location.origin + '/api/v1');
-                                                        const url = `${apiBase}/hpa/hire-payment-advices/${hpa.id}/download_pdf/`;
-                                                        fetch(url, {
-                                                            headers: {
-                                                                'Authorization': `Bearer ${token}`
-                                                            }
-                                                        })
-                                                        .then(response => {
-                                                            if (!response.ok) throw new Error('Share failed');
-                                                            return response.blob();
-                                                        })
-                                                        .then(blob => {
-                                                            const blobUrl = window.URL.createObjectURL(blob);
-                                                            const message = `HPA ${hpa.hpa_number} - Click to view: ${blobUrl}`;
-                                                            const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-                                                            window.open(whatsappUrl, '_blank');
-                                                            setTimeout(() => window.URL.revokeObjectURL(blobUrl), 5000);
-                                                        })
-                                                        .catch(error => {
-                                                            console.error('Error sharing PDF:', error);
-                                                            alert('Error sharing PDF. Please check if the backend is running and try again.');
-                                                        });
-                                                    }}
-                                                    style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#25D366' }}
-                                                    title="Share on WhatsApp"
-                                                >
-                                                    <ShareIcon style={{ width: '18px', height: '18px' }} />
-                                                </button>
-                                                <button
-                                                    onClick={() => {
-                                                        setAcknowledgeHPA(hpa);
-                                                        setShowAcknowledgeModal(true);
-                                                    }}
-                                                    style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#0ea5e9' }}
-                                                    title="Acknowledge Delivery"
-                                                >
-                                                    <DocumentArrowUpIcon style={{ width: '18px', height: '18px' }} />
-                                                </button>
                                                 {canEdit && (
                                                     <button
-                                                        onClick={() => navigate(`/hpa/edit/${hpa.id}`)}
+                                                        onClick={() => {
+                                                            setSelectedHPA(hpa);
+                                                            setShowEditModal(true);
+                                                        }}
                                                         style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#6366f1' }}
                                                         title="Edit HPA"
                                                     >
@@ -402,25 +314,13 @@ export default function HPAManagement() {
                     isLoading={isUpdating}
                 />
             )}
-
-            {/* Acknowledge Delivery Modal */}
-            {showAcknowledgeModal && acknowledgeHPA && (
-                <AcknowledgeDeliveryModal
-                    hpa={acknowledgeHPA}
-                    onClose={() => {
-                        setShowAcknowledgeModal(false);
-                        setAcknowledgeHPA(null);
-                    }}
-                    onSubmit={handleAcknowledgeDelivery}
-                    isLoading={isAcknowledging}
-                />
-            )}
         </div>
     );
 }
 
 function CreateHPAModal({ onClose, onSubmit, isLoading }) {
-    const { user, isSuperAdmin } = useAuth();
+    const { user } = useAuth();
+    const isSuperAdmin = user?.role === 'SUPERADMIN';
 
     const { data: branchesData, isLoading: isLoadingBranches } = useGetBranchesQuery();
     const branches = Array.isArray(branchesData) ? branchesData : (branchesData?.results || []);
@@ -433,11 +333,16 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
 
     const [selectedBranchId, setSelectedBranchId] = useState(isSuperAdmin ? '' : String(user?.branch?.id || ''));
     
-    // Initialize formData state BEFORE using it in other hooks
+    // Fetch LRs without HPA filtered by selected branch
+    const { data: lrsData, isLoading: isLoadingLRs } = useGetLRsWithoutHPAQuery(
+        selectedBranchId ? { branch: selectedBranchId } : {},
+        { skip: isSuperAdmin ? !selectedBranchId : false } // SuperAdmin must select branch first
+    );
+    const lrs = Array.isArray(lrsData) ? lrsData : (lrsData?.results || []);
+
     const [formData, setFormData] = useState({
         branch: isSuperAdmin ? '' : String(user?.branch?.id || ''), // SuperAdmin must provide, branch users get auto-assignment
-        lr: '',  // Primary LR (for backward compatibility)
-        lrs: [],  // Multiple LRs (array of LR IDs)
+        lr: '',
         truck: '',  // Added truck field - REQUIRED and EDITABLE
         invoice_number: '',
         hpa_date: new Date().toISOString().split('T')[0],
@@ -462,127 +367,42 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
     });
 
     const [selectedLR, setSelectedLR] = useState(null);
-    const [selectedLRs, setSelectedLRs] = useState([]);  // Multiple selected LRs
     const [calculatedValues, setCalculatedValues] = useState({
         totalDeductions: 0,
         balanceRs: 0,
         lorryHire: 0,
     });
 
-    // Build query params for LR fetch
-    const lrQueryParams = selectedBranchId 
-        ? { branch: selectedBranchId } 
-        : (!isSuperAdmin && user?.branch?.id ? { branch: String(user?.branch?.id) } : {});
-    
-    // Fetch LRs without HPA filtered by selected branch
-    const { data: lrsData, isLoading: isLoadingLRs, refetch: refetchLRs } = useGetLRsWithoutHPAQuery(
-        lrQueryParams,
-        { skip: isSuperAdmin && !selectedBranchId } // Only skip for SuperAdmin when no branch selected
-    );
-    const lrs = Array.isArray(lrsData) ? lrsData : (lrsData?.results || []);
-    
-    // Debug logging
-    useEffect(() => {
-        console.log('========== HPA Modal Debug ==========');
-        console.log('HPA Modal - isSuperAdmin:', isSuperAdmin);
-        console.log('HPA Modal - selectedBranchId:', selectedBranchId, 'Type:', typeof selectedBranchId);
-        console.log('HPA Modal - formData.branch:', formData.branch, 'Type:', typeof formData.branch);
-        console.log('HPA Modal - lrQueryParams:', JSON.stringify(lrQueryParams));
-        console.log('HPA Modal - Skip query?:', isSuperAdmin && !selectedBranchId);
-        console.log('HPA Modal - LRs data:', lrsData);
-        console.log('HPA Modal - LRs count:', lrs.length);
-        console.log('HPA Modal - isLoadingLRs:', isLoadingLRs);
-        console.log('=====================================');
-    }, [isSuperAdmin, selectedBranchId, formData.branch, lrQueryParams, lrs.length, lrsData, isLoadingLRs]);
-
     // Note: Branch is auto-assigned by backend, no need to manage selectedBranchId
 
-    // Handle LR selection (single or multiple)
-    const handleLRSelection = (lrId, isChecked) => {
-        const lrIdNum = parseInt(lrId);
-        if (isChecked) {
-            // Add to selection
-            if (!selectedLRs.find(lr => lr.id === lrIdNum)) {
-                const lr = lrs.find(l => l.id === lrIdNum);
-                if (lr) {
-                    const newSelected = [...selectedLRs, lr];
-                    setSelectedLRs(newSelected);
-                    updateFormFromLRs(newSelected);
-                }
-            }
-        } else {
-            // Remove from selection
-            const newSelected = selectedLRs.filter(lr => lr.id !== lrIdNum);
-            setSelectedLRs(newSelected);
-            if (newSelected.length > 0) {
-                updateFormFromLRs(newSelected);
-            } else {
-                // Reset form if no LRs selected
-                setFormData(prev => ({
-                    ...prev,
-                    lr: '',
-                    lrs: [],
-                    truck: '',
-                    from_location: '',
-                    to_location: '',
-                    driver_name: '',
-                    driver_mob: '',
-                    lr_reference: '',
-                    tons: '',
-                }));
-            }
-        }
-    };
-
-    // Update form data from selected LRs
-    const updateFormFromLRs = (selectedLRsList) => {
-        if (selectedLRsList.length === 0) return;
-
-        const firstLR = selectedLRsList[0];
-        
-        // Calculate total tons from all selected LRs
-        const totalTons = selectedLRsList.reduce((sum, lr) => {
-            return sum + parseFloat(lr.total_quantity_mt || lr.quantity_mt || 0);
-        }, 0);
-
-        // Build LR reference string
-        const lrNumbers = selectedLRsList.map(lr => lr.lr_number);
-        const lrReference = selectedLRsList.length === 1 
-            ? lrNumbers[0]
-            : `${lrNumbers[0]} (+${selectedLRsList.length - 1} more)`;
-
-        setFormData(prev => ({
-            ...prev,
-            lr: String(firstLR.id),  // Primary LR for backward compatibility
-            lrs: selectedLRsList.map(lr => lr.id),  // Array of LR IDs
-            branch: firstLR.branch || prev.branch,
-            truck: firstLR.truck || prev.truck,
-            from_location: firstLR.from_location || firstLR.primary_from_location || prev.from_location,
-            to_location: firstLR.to_location || firstLR.primary_to_location || prev.to_location,
-            driver_name: firstLR.driver_name || prev.driver_name,
-            driver_mob: firstLR.driver_phone || prev.driver_mob,
-            lr_reference: lrReference,
-            tons: totalTons,
-            invoice_number: firstLR.sap_number || prev.invoice_number,
-            rate_per_tonne: prev.rate_per_tonne,  // Keep user's rate
-        }));
-
-        // Update selectedBranchId
-        if (firstLR.branch) {
-            setSelectedBranchId(firstLR.branch);
-        }
-    };
-
-    // Get selected LR details and auto-populate (backward compatibility for single LR)
+    // Get selected LR details and auto-populate
     useEffect(() => {
-        if (formData.lr && selectedLRs.length === 0) {
+        if (formData.lr) {
             const lr = lrs.find(l => l.id === parseInt(formData.lr));
             setSelectedLR(lr);
             if (lr) {
-                setSelectedLRs([lr]);
-                updateFormFromLRs([lr]);
+                // Auto-populate from LR with all available data
+                setFormData(prev => ({
+                    ...prev,
+                    // Auto-populate branch from LR
+                    branch: lr.branch || prev.branch,
+                    truck: lr.truck || prev.truck,  // Auto-populate truck ID from LR
+                    from_location: lr.from_location || prev.from_location,
+                    to_location: lr.to_location || prev.to_location,
+                    driver_name: lr.driver_name || prev.driver_name,
+                    driver_mob: lr.driver_phone || prev.driver_mob,  // LR has driver_phone, HPA expects driver_mob
+                    lr_reference: lr.lr_number || prev.lr_reference,
+                    tons: lr.quantity_mt || prev.tons,  // LR has quantity_mt, HPA expects tons
+                    invoice_number: lr.sap_number || prev.invoice_number,  // Auto-populate SAP number as invoice
+                    // Note: LR doesn't have rate_per_tonne - must be entered when creating HPA
+                    rate_per_tonne: prev.rate_per_tonne,
+                }));
+                // Update selectedBranchId so subsequent LRs in that branch can be filtered
+                if (lr.branch) {
+                    setSelectedBranchId(lr.branch);
+                }
             }
-        } else if (!formData.lr && selectedLRs.length === 0) {
+        } else {
             setSelectedLR(null);
         }
     }, [formData.lr, lrs]);
@@ -594,7 +414,7 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
             setFormData(prev => ({ ...prev, lorry_hire_rs: lorryHire.toFixed(2) }));
         // Note: LR doesn't have freight_amount - lorry_hire_rs is calculated from tons × rate
         }
-    }, [formData.tons, formData.rate_per_tonne, selectedLRs]);
+    }, [formData.tons, formData.rate_per_tonne, selectedLR]);
 
     // Calculate totals whenever deductions or lorry hire change
     useEffect(() => {
@@ -615,40 +435,20 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
 
     const handleChange = (e) => {
         const { name, value } = e.target;
+        setFormData({ ...formData, [name]: value });
         
         // If branch changes, update selectedBranchId to refetch LRs
         if (name === 'branch') {
-            console.log('Branch changed to:', value, 'Type:', typeof value);
-            const branchValue = String(value); // Ensure it's a string
-            setSelectedBranchId(branchValue);
-            setFormData(prev => ({ ...prev, [name]: branchValue, lr: '' })); // Clear LR selection when branch changes
-            // Trigger refetch after state update
-            setTimeout(() => {
-                console.log('Calling refetchLRs with selectedBranchId:', branchValue);
-                refetchLRs();
-            }, 100);
-        } else {
-            setFormData(prev => ({ ...prev, [name]: value }));
+            setSelectedBranchId(value);
+            setFormData(prev => ({ ...prev, lr: '' })); // Clear LR selection when branch changes
         }
     };
 
     const handleSubmit = (e) => {
         e.preventDefault();
 
-        // Validate at least one LR is selected
-        if (selectedLRs.length === 0) {
-            alert('Please select at least one LR');
-            return;
-        }
-
         // Clean up the form data
         const cleanedData = { ...formData };
-        
-        // Use selectedLRs array instead of single lr
-        if (selectedLRs.length > 0) {
-            cleanedData.lrs = selectedLRs.map(lr => lr.id);
-            cleanedData.lr = selectedLRs[0].id;  // Primary LR for backward compatibility
-        }
         
         // Branch managers: Remove branch field (backend auto-assigns from user.branch)
         // SuperAdmin: Keep branch field (must be provided)
@@ -739,6 +539,14 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
                             </div>
                         )}
                         
+                        {!isSuperAdmin && (
+                            <div style={{ gridColumn: 'span 2', padding: '12px', background: '#d1fae5', borderRadius: '8px', border: '1px solid #10b981' }}>
+                                <p style={{ fontSize: '13px', color: '#065f46', margin: 0 }}>
+                                    ✓ <strong>Branch auto-assigned to your branch.</strong>
+                                </p>
+                            </div>
+                        )}
+
                         {/* HPA Date */}
                         <div>
                             <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
@@ -747,10 +555,10 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
                             <input type="date" name="hpa_date" className="input" required onChange={handleChange} value={formData.hpa_date} />
                         </div>
 
-                        {/* LR Selection - CRITICAL - Now supports multiple LRs */}
+                        {/* LR Selection - CRITICAL */}
                         <div style={{ gridColumn: 'span 2' }}>
                             <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Select LR(s) * {selectedLRs.length > 0 && `(${selectedLRs.length} selected)`}
+                                Select LR * (HPA number will match this LR number)
                             </label>
                             {isSuperAdmin && !selectedBranchId ? (
                                 <div style={{ padding: '12px', background: '#fef3c7', borderRadius: '8px', border: '1px solid #fbbf24' }}>
@@ -769,62 +577,26 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
                                     </p>
                                 </div>
                             ) : (
-                                <div style={{
-                                    border: '1px solid #e5e7eb',
-                                    borderRadius: '8px',
-                                    maxHeight: '300px',
-                                    overflowY: 'auto',
-                                    padding: '12px'
-                                }}>
-                                    {lrs.map(lr => {
-                                        const isSelected = selectedLRs.some(sel => sel.id === lr.id);
-                                        return (
-                                            <label
-                                                key={lr.id}
-                                                style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    padding: '12px',
-                                                    marginBottom: '8px',
-                                                    background: isSelected ? '#f0f9ff' : 'white',
-                                                    border: isSelected ? '2px solid #3b82f6' : '1px solid #e5e7eb',
-                                                    borderRadius: '8px',
-                                                    cursor: 'pointer'
-                                                }}
-                                            >
-                                                <input
-                                                    type="checkbox"
-                                                    checked={isSelected}
-                                                    onChange={(e) => handleLRSelection(lr.id, e.target.checked)}
-                                                    style={{ marginRight: '12px', width: '18px', height: '18px', cursor: 'pointer' }}
-                                                />
-                                                <div style={{ flex: 1 }}>
-                                                    <div style={{ fontWeight: 600, fontSize: '14px', color: '#111827' }}>
-                                                        {lr.lr_number}
-                                                    </div>
-                                                    <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
-                                                        {lr.consignor_name || '-'} → {lr.consignee_name || '-'} | {lr.truck_number || '-'} | {parseFloat(lr.total_quantity_mt || lr.quantity_mt || 0).toFixed(2)} MT
-                                                    </div>
-                                                </div>
-                                            </label>
-                                        );
-                                    })}
-                                    {selectedLRs.length > 0 && (
-                                        <div style={{ marginTop: '12px', padding: '12px', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #86efac' }}>
-                                            <p style={{ fontSize: '12px', color: '#166534', margin: 0 }}>
-                                                ✓ {selectedLRs.length} LR{selectedLRs.length !== 1 ? 's' : ''} selected. HPA Number will be: <strong>{selectedLRs[0].lr_number}</strong>
-                                            </p>
-                                            <p style={{ fontSize: '12px', color: '#166534', marginTop: '4px', marginBottom: 0 }}>
-                                                Total Tons: <strong>{selectedLRs.reduce((sum, lr) => sum + parseFloat(lr.total_quantity_mt || lr.quantity_mt || 0), 0).toFixed(2)} MT</strong>
-                                            </p>
-                                        </div>
+                                <>
+                                    <select name="lr" className="input" required onChange={handleChange} value={formData.lr}>
+                                        <option value="">Select Lorry Receipt (only LRs without HPA)</option>
+                                        {lrs.map(lr => (
+                                            <option key={lr.id} value={lr.id}>
+                                                {lr.lr_number} - {lr.consignor_name} → {lr.consignee_name} - {lr.truck_number} - {lr.quantity_mt || 0} MT
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {selectedLR && (
+                                        <p style={{ fontSize: '12px', color: '#10b981', marginTop: '4px' }}>
+                                            ✓ HPA Number will be: <strong>{selectedLR.lr_number}</strong>
+                                        </p>
                                     )}
                                     {lrs.length > 0 && (
-                                        <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '8px', marginBottom: 0 }}>
+                                        <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
                                             {lrs.length} LR{lrs.length !== 1 ? 's' : ''} available without HPA
                                         </p>
                                     )}
-                                </div>
+                                </>
                             )}
                         </div>
 
@@ -852,9 +624,9 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
                                 getOptionLabel={(opt) => `${opt.truck_number}${opt.owner_name ? ` - ${opt.owner_name}` : ''}${opt.driver_name ? ` - Driver: ${opt.driver_name}` : ''}`}
                                 getOptionValue={(opt) => opt.id}
                             />
-                            {selectedLRs.length > 0 && selectedLRs[0].truck && (
+                            {selectedLR && selectedLR.truck && (
                                 <p style={{ fontSize: '12px', color: '#10b981', marginTop: '4px' }}>
-                                    ✓ Pre-filled from LR: <strong>{selectedLRs[0].truck_number}</strong> - You can change it if needed
+                                    ✓ Pre-filled from LR: <strong>{selectedLR.truck_number}</strong> - You can change it if needed
                                 </p>
                             )}
                         </div>
@@ -868,23 +640,21 @@ function CreateHPAModal({ onClose, onSubmit, isLoading }) {
                         </div>
 
                         {/* Auto-populated info box */}
-                        {selectedLRs.length > 0 && (
+                        {selectedLR && (
                             <div style={{ gridColumn: 'span 2', padding: '16px', background: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd' }}>
-                                <h4 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px', color: '#0369a1' }}>
-                                    Auto-populated from {selectedLRs.length === 1 ? 'LR' : `First LR (${selectedLRs.length} LRs selected)`}:
-                                </h4>
+                                <h4 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px', color: '#0369a1' }}>Auto-populated from LR:</h4>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
                                     <div>
                                         <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>From</p>
-                                        <p style={{ fontSize: '14px', fontWeight: 600 }}>{selectedLRs[0].from_location || selectedLRs[0].primary_from_location || '-'}</p>
+                                        <p style={{ fontSize: '14px', fontWeight: 600 }}>{selectedLR.from_location || '-'}</p>
                                     </div>
                                     <div>
                                         <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>To</p>
-                                        <p style={{ fontSize: '14px', fontWeight: 600 }}>{selectedLRs[0].to_location || selectedLRs[0].primary_to_location || '-'}</p>
+                                        <p style={{ fontSize: '14px', fontWeight: 600 }}>{selectedLR.to_location || '-'}</p>
                                     </div>
                                     <div>
                                         <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Truck</p>
-                                        <p style={{ fontSize: '14px', fontWeight: 600 }}>{selectedLRs[0].truck_number || '-'}</p>
+                                        <p style={{ fontSize: '14px', fontWeight: 600 }}>{selectedLR.truck_number || '-'}</p>
                                     </div>
                                 </div>
                             </div>
@@ -1551,215 +1321,6 @@ function EditHPAModal({ hpa, onClose, onSubmit, isLoading }) {
     );
 }
 
-function AcknowledgeDeliveryModal({ hpa, onClose, onSubmit, isLoading }) {
-    const [formData, setFormData] = useState({
-        branch: hpa.branch || '',
-        lr: hpa.lr || '',
-        hpa: hpa.id,
-        pod_date: new Date().toISOString().split('T')[0],
-        delivery_date: new Date().toISOString().split('T')[0],
-        delivery_time: '',
-        delivered_to: '',
-        delivered_to_phone: '',
-        delivery_signature: '',
-        quantity_received_mt: hpa.tons || '',
-        number_of_bags_received: '',
-        goods_condition: 'GOOD',
-        status: 'RECEIVED',
-        delivery_remarks: '',
-        consignee_remarks: '',
-        remarks: '',
-        pod_document: null,
-    });
-
-    const handleChange = (e) => {
-        if (e.target.type === 'file') {
-            setFormData({ ...formData, pod_document: e.target.files[0] });
-        } else {
-            setFormData({ ...formData, [e.target.name]: e.target.value });
-        }
-    };
-
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        const submitData = new FormData();
-        Object.entries(formData).forEach(([key, value]) => {
-            if (value === null || value === '' || typeof value === 'undefined') {
-                return;
-            }
-            if (key === 'pod_document') {
-                if (value) submitData.append(key, value);
-                return;
-            }
-            submitData.append(key, value);
-        });
-        onSubmit(submitData);
-    };
-
-    return (
-        <div style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0, 0, 0, 0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: '20px'
-        }} onClick={onClose}>
-            <div
-                style={{
-                    background: 'white',
-                    borderRadius: '16px',
-                    maxWidth: '820px',
-                    width: '100%',
-                    maxHeight: '90vh',
-                    overflow: 'auto',
-                    padding: '32px'
-                }}
-                onClick={(e) => e.stopPropagation()}
-            >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                    <h2 style={{ fontSize: '24px', fontWeight: 700 }}>Acknowledge Delivery - {hpa.hpa_number}</h2>
-                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px' }}>
-                        <XMarkIcon style={{ width: '24px', height: '24px', color: '#6b7280' }} />
-                    </button>
-                </div>
-
-                <div style={{
-                    padding: '12px 16px',
-                    background: '#f0f9ff',
-                    border: '1px solid #bae6fd',
-                    borderRadius: '8px',
-                    marginBottom: '20px'
-                }}>
-                    <p style={{ margin: 0, fontSize: '13px', color: '#0369a1' }}>
-                        LR: <strong>{hpa.lr_number || 'N/A'}</strong> • Truck: <strong>{hpa.truck_number || 'N/A'}</strong>
-                    </p>
-                    <p style={{ margin: '6px 0 0', fontSize: '12px', color: '#0c4a6e' }}>
-                        This will mark the linked LR as <strong>DELIVERED</strong>.
-                    </p>
-                </div>
-
-                <form onSubmit={handleSubmit}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
-                        <div>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Delivery Date *
-                            </label>
-                            <input type="date" name="delivery_date" className="input" required onChange={handleChange} value={formData.delivery_date} />
-                        </div>
-
-                        <div>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Delivery Time
-                            </label>
-                            <input type="time" name="delivery_time" className="input" onChange={handleChange} value={formData.delivery_time} />
-                        </div>
-
-                        <div>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Delivered To (Name) *
-                            </label>
-                            <input type="text" name="delivered_to" className="input" required onChange={handleChange} value={formData.delivered_to} placeholder="Name of receiver" />
-                        </div>
-
-                        <div>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Receiver Phone
-                            </label>
-                            <input type="tel" name="delivered_to_phone" className="input" onChange={handleChange} value={formData.delivered_to_phone} placeholder="Optional" />
-                        </div>
-
-                        <div style={{ gridColumn: 'span 2' }}>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Delivery Signature
-                            </label>
-                            <input type="text" name="delivery_signature" className="input" onChange={handleChange} value={formData.delivery_signature} placeholder="Signature of receiver" />
-                        </div>
-
-                        <div>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Quantity Received (MT)
-                            </label>
-                            <input type="number" step="0.01" name="quantity_received_mt" className="input" onChange={handleChange} value={formData.quantity_received_mt} placeholder="Optional" />
-                        </div>
-
-                        <div>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Number of Bags Received
-                            </label>
-                            <input type="number" name="number_of_bags_received" className="input" onChange={handleChange} value={formData.number_of_bags_received} placeholder="Optional" />
-                        </div>
-
-                        <div>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Goods Condition
-                            </label>
-                            <select name="goods_condition" className="input" onChange={handleChange} value={formData.goods_condition}>
-                                <option value="GOOD">Good Condition</option>
-                                <option value="DAMAGED">Damaged</option>
-                                <option value="SHORT">Short Delivery</option>
-                                <option value="EXCESS">Excess Delivery</option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Status
-                            </label>
-                            <select name="status" className="input" onChange={handleChange} value={formData.status}>
-                                <option value="RECEIVED">Received</option>
-                                <option value="VERIFIED">Verified</option>
-                                <option value="DISPUTED">Disputed</option>
-                                <option value="ACCEPTED">Accepted</option>
-                            </select>
-                        </div>
-
-                        <div style={{ gridColumn: 'span 2' }}>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                POD Document (Photo/Scan)
-                            </label>
-                            <input type="file" name="pod_document" className="input" accept="image/*,.pdf" onChange={handleChange} />
-                            <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>Upload delivery acknowledgment (optional)</p>
-                        </div>
-
-                        <div>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Delivery Remarks
-                            </label>
-                            <textarea name="delivery_remarks" className="input" onChange={handleChange} value={formData.delivery_remarks} rows="2" placeholder="Delivery remarks..." />
-                        </div>
-
-                        <div>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Consignee Remarks
-                            </label>
-                            <textarea name="consignee_remarks" className="input" onChange={handleChange} value={formData.consignee_remarks} rows="2" placeholder="Remarks from consignee..." />
-                        </div>
-
-                        <div style={{ gridColumn: 'span 2' }}>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                Internal Remarks
-                            </label>
-                            <textarea name="remarks" className="input" onChange={handleChange} value={formData.remarks} rows="2" placeholder="Internal remarks..." />
-                        </div>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '12px', marginTop: '24px', justifyContent: 'flex-end' }}>
-                        <button type="button" className="btn btn-secondary" onClick={onClose}>
-                            Cancel
-                        </button>
-                        <button type="submit" className="btn btn-primary" disabled={isLoading || !formData.lr || !formData.branch}>
-                            {isLoading ? 'Submitting...' : 'Acknowledge Delivery'}
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    );
-}
-
 // Transactions Modal Component
 function TransactionsModal({ hpa, onClose }) {
     const { data: transactionsData, isLoading: isLoadingTransactions } = useGetHPATransactionsQuery(hpa.id);
@@ -2060,43 +1621,6 @@ function TransactionsModal({ hpa, onClose }) {
 function ViewHPAModal({ hpa, onClose }) {
     const { data: transactionsData, isLoading: isLoadingTransactions } = useGetHPATransactionsQuery(hpa.id);
     const transactions = transactionsData?.transactions || [];
-    
-    // Phase 1: Invoice Management
-    const { data: invoicesData, isLoading: isLoadingInvoices, refetch: refetchInvoices } = useGetHPAInvoicesQuery(hpa.id);
-    const [addInvoice, { isLoading: isAddingInvoice }] = useAddHPAInvoiceMutation();
-    const [deleteInvoice, { isLoading: isDeletingInvoice }] = useDeleteHPAInvoiceMutation();
-    const [showAddInvoiceForm, setShowAddInvoiceForm] = useState(false);
-    const [newInvoice, setNewInvoice] = useState({ invoice_number: '', invoice_date: '', amount: '', remarks: '' });
-    
-    const invoices = invoicesData?.invoices || [];
-    const invoiceTotalAmount = invoicesData?.total_amount || 0;
-    
-    const handleAddInvoice = async (e) => {
-        e.preventDefault();
-        try {
-            await addInvoice({ 
-                hpaId: hpa.id, 
-                ...newInvoice,
-                amount: newInvoice.amount ? parseFloat(newInvoice.amount) : 0
-            }).unwrap();
-            setNewInvoice({ invoice_number: '', invoice_date: '', amount: '', remarks: '' });
-            setShowAddInvoiceForm(false);
-            refetchInvoices();
-        } catch (error) {
-            alert('Failed to add invoice: ' + (error.data?.invoice_number || error.message || 'Unknown error'));
-        }
-    };
-    
-    const handleDeleteInvoice = async (invoiceId, invoiceNumber) => {
-        if (window.confirm(`Delete invoice ${invoiceNumber}?`)) {
-            try {
-                await deleteInvoice({ hpaId: hpa.id, invoiceId }).unwrap();
-                refetchInvoices();
-            } catch (error) {
-                alert('Failed to delete invoice: ' + (error.message || 'Unknown error'));
-            }
-        }
-    };
 
     const getTransactionTypeBadge = (type) => {
         const badges = {
@@ -2206,123 +1730,6 @@ function ViewHPAModal({ hpa, onClose }) {
                         <p style={{ fontSize: '11px', color: '#1e40af', marginBottom: '4px', fontWeight: 600 }}>Remaining Balance</p>
                         <p style={{ fontSize: '20px', fontWeight: 700, color: '#10b981' }}>₹{remainingBalance.toLocaleString()}</p>
                     </div>
-                </div>
-
-                {/* Invoice Numbers Section - Phase 1 */}
-                <div style={{ marginBottom: '32px', padding: '24px', background: '#f0fdf4', borderRadius: '12px', border: '2px solid #22c55e' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#166534' }}>
-                            Invoice Numbers ({invoices.length + (hpa.invoice_number && !invoices.some(i => i.invoice_number === hpa.invoice_number) ? 1 : 0)})
-                        </h3>
-                        <button
-                            onClick={() => setShowAddInvoiceForm(!showAddInvoiceForm)}
-                            className="btn btn-primary"
-                            style={{ padding: '6px 12px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                        >
-                            <PlusIcon style={{ width: '16px', height: '16px' }} />
-                            Add Invoice
-                        </button>
-                    </div>
-                    
-                    {/* Add Invoice Form */}
-                    {showAddInvoiceForm && (
-                        <form onSubmit={handleAddInvoice} style={{ marginBottom: '16px', padding: '16px', background: 'white', borderRadius: '8px', border: '1px solid #86efac' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '12px' }}>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: '#374151' }}>Invoice Number *</label>
-                                    <input
-                                        type="text"
-                                        value={newInvoice.invoice_number}
-                                        onChange={(e) => setNewInvoice(prev => ({ ...prev, invoice_number: e.target.value }))}
-                                        placeholder="e.g., INV-2024-001"
-                                        required
-                                        className="input"
-                                        style={{ fontSize: '13px', padding: '8px' }}
-                                    />
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: '#374151' }}>Invoice Date</label>
-                                    <input
-                                        type="date"
-                                        value={newInvoice.invoice_date}
-                                        onChange={(e) => setNewInvoice(prev => ({ ...prev, invoice_date: e.target.value }))}
-                                        className="input"
-                                        style={{ fontSize: '13px', padding: '8px' }}
-                                    />
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: '#374151' }}>Amount</label>
-                                    <input
-                                        type="number"
-                                        value={newInvoice.amount}
-                                        onChange={(e) => setNewInvoice(prev => ({ ...prev, amount: e.target.value }))}
-                                        placeholder="0.00"
-                                        className="input"
-                                        style={{ fontSize: '13px', padding: '8px' }}
-                                    />
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: '#374151' }}>Remarks</label>
-                                    <input
-                                        type="text"
-                                        value={newInvoice.remarks}
-                                        onChange={(e) => setNewInvoice(prev => ({ ...prev, remarks: e.target.value }))}
-                                        placeholder="Optional"
-                                        className="input"
-                                        style={{ fontSize: '13px', padding: '8px' }}
-                                    />
-                                </div>
-                            </div>
-                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                                <button type="button" onClick={() => setShowAddInvoiceForm(false)} style={{ padding: '6px 16px', background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}>
-                                    Cancel
-                                </button>
-                                <button type="submit" className="btn btn-primary" style={{ padding: '6px 16px', fontSize: '13px' }} disabled={isAddingInvoice}>
-                                    {isAddingInvoice ? 'Adding...' : 'Add Invoice'}
-                                </button>
-                            </div>
-                        </form>
-                    )}
-                    
-                    {/* Invoice List */}
-                    {isLoadingInvoices ? (
-                        <p style={{ fontSize: '13px', color: '#6b7280', fontStyle: 'italic' }}>Loading invoices...</p>
-                    ) : (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                            {/* Show legacy invoice_number if set */}
-                            {hpa.invoice_number && !invoices.some(i => i.invoice_number === hpa.invoice_number) && (
-                                <div style={{ padding: '8px 12px', background: 'white', borderRadius: '8px', border: '1px solid #86efac', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <span style={{ fontWeight: 600, color: '#166534' }}>{hpa.invoice_number}</span>
-                                    <span style={{ fontSize: '11px', color: '#9ca3af' }}>(Legacy)</span>
-                                </div>
-                            )}
-                            {invoices.map(invoice => (
-                                <div key={invoice.id} style={{ padding: '8px 12px', background: 'white', borderRadius: '8px', border: '1px solid #86efac', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <div>
-                                        <span style={{ fontWeight: 600, color: '#166534' }}>{invoice.invoice_number}</span>
-                                        {invoice.amount > 0 && <span style={{ fontSize: '12px', color: '#6b7280', marginLeft: '8px' }}>₹{parseFloat(invoice.amount).toLocaleString()}</span>}
-                                        {invoice.invoice_date && <span style={{ fontSize: '11px', color: '#9ca3af', marginLeft: '8px' }}>{invoice.invoice_date}</span>}
-                                    </div>
-                                    <button
-                                        onClick={() => handleDeleteInvoice(invoice.id, invoice.invoice_number)}
-                                        style={{ padding: '2px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#ef4444' }}
-                                        title="Delete invoice"
-                                        disabled={isDeletingInvoice}
-                                    >
-                                        <XMarkIcon style={{ width: '14px', height: '14px' }} />
-                                    </button>
-                                </div>
-                            ))}
-                            {invoices.length === 0 && !hpa.invoice_number && (
-                                <p style={{ fontSize: '13px', color: '#6b7280', fontStyle: 'italic' }}>No invoices added yet. Click "Add Invoice" to add one.</p>
-                            )}
-                        </div>
-                    )}
-                    {invoiceTotalAmount > 0 && (
-                        <p style={{ fontSize: '13px', color: '#166534', marginTop: '12px', fontWeight: 600 }}>
-                            Total Invoice Amount: ₹{invoiceTotalAmount.toLocaleString()}
-                        </p>
-                    )}
                 </div>
 
                 {/* Initial Deductions Breakdown */}

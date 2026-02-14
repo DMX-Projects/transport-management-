@@ -8,7 +8,6 @@ from apps.lr.models import LorryReceipt
 from apps.hpa.models import HirePaymentAdvice
 from apps.payments.models import Payment
 from apps.billing.models import Bill
-from apps.pod.models import ProofOfDelivery
 import random
 
 class Command(BaseCommand):
@@ -19,39 +18,22 @@ class Command(BaseCommand):
         
         try:
             # Create admin user first
-            admin_user, created = User.objects.get_or_create(
+            admin_user, _ = User.objects.get_or_create(
                 username='admin',
-                defaults={
-                    'email': 'admin@capital.com',
-                    'is_staff': True,
-                    'is_superuser': True,
-                    'is_active': True,
-                }
+                defaults={'email': 'admin@capital.com', 'is_staff': True, 'is_superuser': True}
             )
-            if created or not admin_user.check_password('admin123'):
-                admin_user.set_password('admin123')
-                admin_user.save()
             
-            # Create company (full defaults for BaseModel + required fields)
+            # Create company
             company, _ = Company.objects.get_or_create(
-                gstin='27AABBG1234K1Z0',
+                name='Capital Logistics',
                 defaults={
-                    'name': 'Capital Logistics',
-                    'pan': 'CAPITAL123C',
-                    'address': 'Head Office, Transport Nagar',
-                    'city': 'Mumbai',
-                    'state': 'Maharashtra',
-                    'pincode': '400001',
-                    'phone': '9876543210',
                     'email': 'info@capital.com',
+                    'phone': '9876543210',
+                    'gstin': '27AABBG1234K1Z0',
                     'created_by': admin_user,
                     'updated_by': admin_user,
                 }
             )
-            if not getattr(company, 'created_by_id', None):
-                company.created_by = admin_user
-                company.updated_by = admin_user
-                company.save()
             
             # Create branches
             branches = self._create_branches(company, admin_user)
@@ -85,10 +67,6 @@ class Command(BaseCommand):
             bills = self._create_bills(hpas, branches, users, admin_user)
             self.stdout.write(self.style.SUCCESS(f'✓ Created {len(bills)} Bills'))
             
-            # Create PODs (Proof of Delivery) for some HPAs
-            pods = self._create_pods(hpas, users, admin_user)
-            self.stdout.write(self.style.SUCCESS(f'✓ Created {len(pods)} Proof of Deliveries'))
-            
             self.stdout.write(self.style.SUCCESS('\n✓ Sample data seeding completed successfully!'))
         except Exception as e:
             self.stdout.write(self.style.ERROR(f'Error: {str(e)}'))
@@ -97,27 +75,16 @@ class Command(BaseCommand):
 
     def _create_branches(self, company, admin_user):
         branches_data = [
-            {'code': 'DEL01', 'name': 'Delhi HQ', 'city': 'New Delhi', 'state': 'Delhi', 'pincode': '110001', 'lr_prefix': 'DEL'},
-            {'code': 'MUM01', 'name': 'Mumbai Branch', 'city': 'Mumbai', 'state': 'Maharashtra', 'pincode': '400002', 'lr_prefix': 'MUM'},
-            {'code': 'BAN01', 'name': 'Bangalore Branch', 'city': 'Bangalore', 'state': 'Karnataka', 'pincode': '560066', 'lr_prefix': 'BAN'},
+            {'name': 'Delhi HQ', 'city': 'New Delhi', 'state': 'Delhi'},
+            {'name': 'Mumbai Branch', 'city': 'Mumbai', 'state': 'Maharashtra'},
+            {'name': 'Bangalore Branch', 'city': 'Bangalore', 'state': 'Karnataka'},
         ]
         branches = []
         for data in branches_data:
-            code = data.pop('code')
-            defaults = {
-                **data,
-                'company': company,
-                'address': f"{data['name']}, {data['city']}, {data['state']}",
-                'phone': '9876543210',
-                'email': f"{data['name'].lower().replace(' ', '')}@capital.com",
-                'created_by': admin_user,
-                'updated_by': admin_user,
-            }
-            branch, _ = Branch.objects.get_or_create(code=code, defaults=defaults)
-            if not getattr(branch, 'created_by_id', None):
-                branch.created_by = admin_user
-                branch.updated_by = admin_user
-                branch.save()
+            data['company'] = company
+            data['created_by'] = admin_user
+            data['updated_by'] = admin_user
+            branch, _ = Branch.objects.get_or_create(name=data['name'], defaults=data)
             branches.append(branch)
         return branches
 
@@ -238,49 +205,37 @@ class Command(BaseCommand):
 
     def _create_hpas(self, lrs, branches, users, admin_user):
         hpas = []
-        # Ensure each branch gets at least 2 unbilled HPAs (for Create Bill dropdown)
-        eligible_by_branch = {}
-        for lr in lrs:
-            if lr.status not in ['PENDING_HPA', 'ISSUED', 'LOADING', 'IN_TRANSIT']:
-                continue
-            bid = lr.branch_id if lr.branch_id else 0
-            if bid not in eligible_by_branch:
-                eligible_by_branch[bid] = []
-            eligible_by_branch[bid].append(lr)
+        # Filter for LRs that can have HPA
+        eligible_lrs = [lr for lr in lrs if lr.status in ['PENDING_HPA', 'ISSUED', 'LOADING', 'IN_TRANSIT']]
         
-        inv_num = 1000
-        for branch in branches:
-            bid = branch.id
-            candidates = eligible_by_branch.get(bid, [])
-            random.shuffle(candidates)
-            for lr in candidates[:3]:  # Up to 3 HPAs per branch
-                hpa_date = lr.lr_date + timedelta(days=random.randint(1, 5))
-                lorry_hire = random.randint(5000, 20000)
-                advance_paid = 0
-                hpa = HirePaymentAdvice.objects.create(
-                    lr=lr,
-                    hpa_date=hpa_date,
-                    invoice_number=f'INV-{inv_num}',
-                    truck=lr.truck,
-                    from_location=lr.from_location,
-                    to_location=lr.to_location,
-                    driver_name=lr.driver_name,
-                    driver_mob=lr.driver_phone,
-                    branch=lr.branch,
-                    created_by=random.choice(users),
-                    updated_by=random.choice(users),
-                    tons=lr.quantity_mt,
-                    rate_per_tonne=random.randint(100, 300),
-                    lorry_hire_rs=lorry_hire,
-                    advance_paid_rs=advance_paid,
-                    diesel_amount=random.randint(0, 5000),
-                    bank_amount=random.randint(0, 500),
-                    other_deductions=random.randint(0, 2000),
-                    payment_status=random.choice(['PENDING', 'PARTIAL', 'PAID']),
-                    remarks=f'Sample HPA for {lr.lr_number}'
-                )
-                hpas.append(hpa)
-                inv_num += 1
+        for i, lr in enumerate(eligible_lrs[:10]):
+            hpa_date = lr.lr_date + timedelta(days=random.randint(1, 5))
+            lorry_hire = random.randint(5000, 20000)
+            advance_paid = random.randint(0, lorry_hire // 2)
+            
+            hpa = HirePaymentAdvice.objects.create(
+                lr=lr,
+                hpa_date=hpa_date,
+                invoice_number=f'INV-{1000+i}',
+                truck=lr.truck,
+                from_location=lr.from_location,
+                to_location=lr.to_location,
+                driver_name=lr.driver_name,
+                driver_mob=lr.driver_phone,
+                branch=lr.branch,
+                created_by=random.choice(users),
+                updated_by=random.choice(users),
+                tons=lr.quantity_mt,
+                rate_per_tonne=random.randint(100, 300),
+                lorry_hire_rs=lorry_hire,
+                advance_paid_rs=advance_paid,
+                diesel_amount=random.randint(0, 5000),
+                bank_amount=random.randint(0, 500),
+                other_deductions=random.randint(0, 2000),
+                payment_status=random.choice(['PENDING', 'PARTIAL', 'PAID']),
+                remarks=f'Sample HPA for {lr.lr_number}'
+            )
+            hpas.append(hpa)
         
         return hpas
 
@@ -314,34 +269,6 @@ class Command(BaseCommand):
         
         return payments
 
-    def _create_pods(self, hpas, users, admin_user):
-        """Create a few PODs for HPAs that have a primary LR (no existing POD)."""
-        pods = []
-        for hpa in hpas[:5]:  # First 5 HPAs
-            if not hpa.lr_id:
-                continue
-            if ProofOfDelivery.objects.filter(lr_id=hpa.lr_id).exists():
-                continue
-            lr = hpa.lr
-            pod_date = hpa.hpa_date + timedelta(days=random.randint(1, 5))
-            delivery_date = pod_date
-            pod = ProofOfDelivery.objects.create(
-                branch=hpa.branch,
-                lr=lr,
-                hpa=hpa,
-                pod_date=pod_date,
-                delivery_date=delivery_date,
-                delivered_to=f'Receiver at {lr.to_location}',
-                quantity_received_mt=lr.quantity_mt or Decimal('0'),
-                number_of_bags_received=getattr(lr, 'number_of_bags', 0) or 0,
-                goods_condition='GOOD',
-                status=random.choice(['RECEIVED', 'VERIFIED', 'ACCEPTED']),
-                created_by=random.choice(users),
-                updated_by=random.choice(users),
-            )
-            pods.append(pod)
-        return pods
-
     def _create_bills(self, hpas, branches, users, admin_user):
         bills = []
         # Create bills for consignors present in LRs
@@ -352,8 +279,7 @@ class Command(BaseCommand):
                 consignor_set.add(hpa.lr.consignor)
         consignor_list = list(consignor_set)
         
-        # Create only 1 bill with 1 item so most HPAs stay "without bills" for testing Create Bill flow
-        for i in range(min(1, len(consignor_list))):
+        for i in range(min(5, len(consignor_list))):
             consignor = consignor_list[i]
             branch = random.choice(branches)
             # Ensure unique bill prefix per branch to avoid global collisions
@@ -373,10 +299,10 @@ class Command(BaseCommand):
             )
             bills.append(bill)
             
-            # Add only 1 bill item so many HPAs remain unbilled (for testing Create Bill)
+            # Add 2-4 bill items from LRs of this consignor
             lr_candidates = [h.lr for h in hpas if h.lr and h.lr.consignor == consignor]
             random.shuffle(lr_candidates)
-            for lr in lr_candidates[:1]:
+            for lr in lr_candidates[:random.randint(2, 4)]:
                 # Create bill item with random freight rate
                 from apps.billing.models import BillItem
                 BillItem.objects.create(

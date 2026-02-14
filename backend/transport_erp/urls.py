@@ -15,13 +15,11 @@ urlpatterns = [
     path('api/v1/accounts/', include('apps.accounts.urls')),
     path('api/v1/masters/', include('apps.masters.urls')),
     path('api/v1/lr/', include('apps.lr.urls')),
-    path('api/v1/pod/', include('apps.pod.urls')),
     path('api/v1/hpa/', include('apps.hpa.urls')),
     path('api/v1/billing/', include('apps.billing.urls')),
     path('api/v1/dashboard/', include('apps.dashboard.urls')),
     path('api/v1/payments/', include('apps.payments.urls')),
     path('api/v1/reports/', include('apps.reports.urls')),
-    path('api/v1/transactions/', include('apps.transactions.urls')),
     # path('api/v1/receipts/', include('apps.receipts.urls')),  # To be added
     # path('api/v1/accounting/', include('apps.accounting.urls')),  # To be added
     

@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 // Backend-driven HPA search & pagination is handled via getHPAReport
-import { useGetReportsSummaryQuery, useGetLRReportQuery, useGetHPAReportQuery, useGetPaymentReportQuery, useGetBillReportQuery, useRequestBillPdfMutation, useRequestLrPdfMutation, useRequestHpaPdfMutation, useCheckTaskStatusQuery } from '../features/reports/reportsApi';
+import { useGetReportsSummaryQuery, useGetLRReportQuery, useGetHPAReportQuery, useGetPaymentReportQuery, useGetBillReportQuery } from '../features/reports/reportsApi';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
 const reportTypes = [
@@ -25,28 +25,11 @@ export default function Reports() {
     const [paymentPage, setPaymentPage] = useState(1);
     const [billSearch, setBillSearch] = useState('');
     const [billPage, setBillPage] = useState(1);
-    
-    // PDF download state
-    const [pdfTaskId, setPdfTaskId] = useState(null);
-    const [pdfProgress, setPdfProgress] = useState(0);
-    const [pdfStatus, setPdfStatus] = useState(null);
-    const [pdfError, setPdfError] = useState(null);
 
     const debouncedHpaSearch = useDebouncedValue(hpaSearch, 300);
     const debouncedLrSearch = useDebouncedValue(lrSearch, 300);
     const debouncedPaymentSearch = useDebouncedValue(paymentSearch, 300);
     const debouncedBillSearch = useDebouncedValue(billSearch, 300);
-
-    // PDF generation mutations
-    const [requestBillPdf] = useRequestBillPdfMutation();
-    const [requestLrPdf] = useRequestLrPdfMutation();
-    const [requestHpaPdf] = useRequestHpaPdfMutation();
-    
-    // Poll task status when generating PDF
-    const { data: taskStatus } = useCheckTaskStatusQuery(
-        pdfTaskId,
-        { skip: !pdfTaskId, pollingInterval: 2000 }
-    );
 
     // Fetch reports based on type
     const { data: summaryData, isLoading: isLoadingSummary } = useGetReportsSummaryQuery(
@@ -74,119 +57,10 @@ export default function Reports() {
         { skip: reportType !== 'bill' }
     );
 
-    // Handle PDF task status updates
-    useEffect(() => {
-        if (!taskStatus) return;
-        
-        setPdfProgress(taskStatus.progress || 0);
-        setPdfStatus(taskStatus.status);
-        
-        if (taskStatus.status === 'success') {
-            // Auto-download when ready
-            const downloadUrl = taskStatus.download_url;
-            const filename = taskStatus.file_name;
-            downloadPdfFile(downloadUrl, filename);
-            setPdfTaskId(null);
-        } else if (taskStatus.status === 'failed') {
-            setPdfError(taskStatus.error || 'PDF generation failed');
-            setPdfTaskId(null);
-        }
-    }, [taskStatus]);
-
-    const downloadPdfFile = (url, filename) => {
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = filename;
-        
-        fetch(url, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-        })
-        .then(response => response.blob())
-        .then(blob => {
-            const blobUrl = window.URL.createObjectURL(blob);
-            link.href = blobUrl;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(blobUrl);
-        })
-        .catch(error => {
-            console.error('Download failed:', error);
-            setPdfError('Failed to download PDF');
-        });
-    };
-
     const formatCurrency = (amount) => `₹${parseFloat(amount || 0).toLocaleString()}`;
 
-    const handleExportPDF = async () => {
-        if (reportType === 'summary') {
-            setPdfError('PDF export not available for Summary reports');
-            return;
-        }
-
-        let itemsToExport = [];
-        let reportName = '';
-
-        try {
-            setPdfError(null);
-            setPdfProgress(0);
-            setPdfStatus('pending');
-
-            switch (reportType) {
-                case 'lr':
-                    itemsToExport = lrData?.results || [];
-                    reportName = 'LR';
-                    break;
-                case 'hpa':
-                    itemsToExport = hpaData?.results || [];
-                    reportName = 'HPA';
-                    break;
-                case 'bill':
-                    itemsToExport = billData?.results || [];
-                    reportName = 'Bill';
-                    break;
-                default:
-                    setPdfError('PDF export not available for this report type');
-                    return;
-            }
-
-            if (!itemsToExport.length) {
-                setPdfError(`No ${reportName} data available to export`);
-                setPdfStatus(null);
-                return;
-            }
-
-            const firstItem = itemsToExport[0];
-            if (!firstItem.id) {
-                setPdfError('Invalid item data');
-                setPdfStatus(null);
-                return;
-            }
-
-            let result;
-            switch (reportType) {
-                case 'lr':
-                    result = await requestLrPdf(firstItem.id).unwrap();
-                    break;
-                case 'hpa':
-                    result = await requestHpaPdf(firstItem.id).unwrap();
-                    break;
-                case 'bill':
-                    result = await requestBillPdf(firstItem.id).unwrap();
-                    break;
-            }
-
-            if (result?.task_id) {
-                setPdfTaskId(result.task_id);
-                setPdfStatus('processing');
-            }
-        } catch (error) {
-            console.error('PDF request error:', error);
-            setPdfError(error?.data?.error || 'Failed to request PDF export');
-            setPdfStatus(null);
-        }
+    const handleExportPDF = () => {
+        alert('PDF export feature coming soon!');
     };
 
     const handlePrint = () => {
@@ -394,84 +268,16 @@ export default function Reports() {
                 <button
                     className="btn btn-primary"
                     onClick={handleExportPDF}
-                    disabled={pdfStatus === 'processing'}
                 >
-                    {pdfStatus === 'processing' ? (
-                        <>📥 Generating PDF ({pdfProgress}%)</>
-                    ) : (
-                        <>📥 Export to PDF</>
-                    )}
+                    📥 Export to PDF
+                </button>
+                <button
+                    className="btn btn-secondary"
+                    onClick={handlePrint}
+                >
+                    🖨️ Print
                 </button>
             </div>
-
-            {/* PDF Status Messages */}
-            {pdfError && (
-                <div style={{
-                    padding: '12px 16px',
-                    background: '#fee2e2',
-                    color: '#991b1b',
-                    borderRadius: '6px',
-                    fontSize: '14px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center'
-                }}>
-                    <span>❌ {pdfError}</span>
-                    <button
-                        onClick={() => setPdfError(null)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px' }}
-                    >
-                        ✕
-                    </button>
-                </div>
-            )}
-
-            {pdfStatus === 'processing' && (
-                <div style={{
-                    padding: '12px 16px',
-                    background: '#dbeafe',
-                    color: '#1e40af',
-                    borderRadius: '6px',
-                    fontSize: '14px'
-                }}>
-                    <div style={{ marginBottom: '8px' }}>⏳ Generating PDF... {pdfProgress}%</div>
-                    <div style={{
-                        width: '100%',
-                        height: '6px',
-                        background: '#bfdbfe',
-                        borderRadius: '3px',
-                        overflow: 'hidden'
-                    }}>
-                        <div style={{
-                            height: '100%',
-                            background: '#3b82f6',
-                            width: `${pdfProgress}%`,
-                            transition: 'width 0.3s ease'
-                        }} />
-                    </div>
-                </div>
-            )}
-
-            {pdfStatus === 'success' && (
-                <div style={{
-                    padding: '12px 16px',
-                    background: '#dcfce7',
-                    color: '#166534',
-                    borderRadius: '6px',
-                    fontSize: '14px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center'
-                }}>
-                    <span>✓ PDF downloaded successfully!</span>
-                    <button
-                        onClick={() => setPdfStatus(null)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px' }}
-                    >
-                        ✕
-                    </button>
-                </div>
-            )}
 
             {/* Report Content */}
             {reportType === 'summary' && (

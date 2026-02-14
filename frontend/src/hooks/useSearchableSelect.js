@@ -16,9 +16,7 @@ export function useSearchableSelect(searchEndpoint, defaultParams = {}) {
         }
 
         try {
-            const apiBase = import.meta.env.VITE_API_BASE_URL || '/api/v1';
-            const baseUrl = apiBase.replace('/api/v1', '');
-            const url = new URL(`${baseUrl}/api/v1${searchEndpoint.startsWith('/') ? '' : '/'}${searchEndpoint}`, window.location.origin);
+            const url = new URL(`http://localhost:8000/api/v1${searchEndpoint.startsWith('/') ? '' : '/'}${searchEndpoint}`);
             url.searchParams.set('search', term);
             Object.entries(defaultParams || {}).forEach(([key, value]) => {
                 if (value !== undefined && value !== null && value !== '') {

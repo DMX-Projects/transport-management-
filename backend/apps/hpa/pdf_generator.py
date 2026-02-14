@@ -209,7 +209,7 @@ def generate_hpa_pdf(hpa):
     
     # LR Reference and Tons
     lr_tons_data = [
-        ['LR No.:', hpa.lr_reference or (hpa.lr.lr_number if hpa.lr else hpa.hpa_number)],
+        ['LR No.:', hpa.lr_reference or (hpa.lr.lr_number if hpa.lr else '')],
         ['Tons:', str(hpa.tons) if hpa.tons else '35']
     ]
     lr_tons_table = Table(lr_tons_data, colWidths=[40*mm, 140*mm])
@@ -227,13 +227,13 @@ def generate_hpa_pdf(hpa):
     
     # Financial Details
     financial_data = [
-        ['Rate per Tonne:', f"Rs. {hpa.rate_per_tonne or 983}"],
-        ['Lorry Hire Rs.:', f"Rs. {float(hpa.lorry_hire_rs or 34405.00):.2f}"],
-        ['Less Advance:', f"Rs. {float(hpa.less_advance or 300.00):.2f}"],
-        ['Diesel:', f"Rs. {float(hpa.diesel_amount or 23000):.2f}"],
+        ['Rate per Tonne:', f"₹{hpa.rate_per_tonne or 983}"],
+        ['Lorry Hire Rs.:', f"₹{float(hpa.lorry_hire_rs or 34405.00):.2f}"],
+        ['Less Advance:', f"₹{float(hpa.advance_paid_rs or 300.00):.2f}"],
+        ['Diesel:', f"₹{float(hpa.diesel_amount or 23000):.2f}"],
         ['Pump Name:', hpa.pump_name or 'B.R.K. REDDY'],
-        ['Bank:', f"Rs. {float(hpa.bank_amount or 8000.00):.2f}"],
-        ['Balance Rs.:', f"Rs. {float(hpa.balance_rs or 3105.00):.2f}"]
+        ['Bank:', f"₹{float(hpa.bank_amount or 8000.00):.2f}"],
+        ['Balance Rs.:', f"₹{float(hpa.balance_rs or 3105.00):.2f}"]
     ]
     financial_table = Table(financial_data, colWidths=[50*mm, 130*mm])
     financial_table.setStyle(TableStyle([
@@ -253,7 +253,7 @@ def generate_hpa_pdf(hpa):
     
     # Any Other Charges
     other_charges_data = [
-        ['Any Other Charges:', f"Rs. {float(hpa.other_deductions or 0):.2f}"]
+        ['Any Other Charges:', f"₹{float(hpa.other_deductions or 0):.2f}"]
     ]
     if hpa.other_deductions_description:
         other_charges_data.append(['Description:', hpa.other_deductions_description])
@@ -271,47 +271,30 @@ def generate_hpa_pdf(hpa):
     elements.append(other_charges_table)
     elements.append(Spacer(1, 4*mm))
     
-    # Transaction History Section - Using unified HPATransaction table
-    transactions = hpa.transactions.filter(is_deleted=False).order_by('-transaction_date') if hasattr(hpa, 'transactions') else []
-    
+    # Transaction History Section
+    transactions = hpa.transactions.all() if hasattr(hpa, 'transactions') else []
     if transactions.exists():
-        elements.append(Spacer(1, 2*mm))
         elements.append(Paragraph("<b style='color: %s'>Payment Transactions History</b>" % blue_color, field_label_style))
-        elements.append(Spacer(1, 2*mm))
         
         # Transaction table header
         transaction_data = [
-            ['Date', 'Type', 'Payment Mode', 'Amount (Rs.)', 'Details']
+            ['Date', 'Type', 'Payment Mode', 'Amount (₹)', 'Details']
         ]
         
         # Add transaction rows
-        for txn in transactions:
-            details = []
-            if txn.pump_name:
-                details.append(f"Pump: {txn.pump_name}")
-            if txn.bank_name:
-                details.append(f"Bank: {txn.bank_name}")
-            if txn.reference_number:
-                details.append(f"Ref: {txn.reference_number}")
-            if txn.description:
-                details.append(txn.description)
-            elif txn.remarks:
-                details.append(txn.remarks)
-            
-            details_text = ', '.join(details) if details else '-'
-            
+        for txn in transactions.all():
             transaction_data.append([
                 str(txn.transaction_date),
                 txn.get_transaction_type_display() if hasattr(txn, 'get_transaction_type_display') else txn.transaction_type,
                 txn.payment_mode or '-',
-                f"Rs. {float(txn.amount):.2f}",
-                details_text
+                f"₹{float(txn.amount):.2f}",
+                txn.description or txn.remarks or '-'
             ])
         
         # Add totals row
-        total_transactions = sum(float(txn.amount) for txn in transactions)
+        total_transactions = sum(float(txn.amount) for txn in transactions.all())
         transaction_data.append([
-            '', 'TOTAL', '', f"Rs. {total_transactions:.2f}", ''
+            '', 'TOTAL', '', f"₹{total_transactions:.2f}", ''
         ])
         
         transaction_table = Table(transaction_data, colWidths=[25*mm, 25*mm, 35*mm, 30*mm, 55*mm])

@@ -6,7 +6,7 @@ import {
     CurrencyDollarIcon,
     ClockIcon,
 } from '@heroicons/react/24/outline';
-import { useGetDashboardSummaryQuery, useGetDashboardMetricsQuery, useGetHPAsWithoutBillsQuery, useGetPendingLRsQuery, useGetPendingHPAsQuery } from '../features/dashboard/dashboardApi';
+import { useGetDashboardSummaryQuery, useGetHPAsWithoutBillsQuery, useGetPendingLRsQuery, useGetPendingHPAsQuery } from '../features/dashboard/dashboardApi';
 import { useAuth } from '../hooks/useAuth';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -15,24 +15,18 @@ export default function Dashboard() {
     const navigate = useNavigate();
     const { isSuperAdmin } = useAuth();
     
-    // Date range state - default to last 3 months for better visibility
+    // Date range state - default to current month
     const [dateRange, setDateRange] = useState(() => {
         const now = new Date();
-        const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+        const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+        const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
         return {
-            from_date: threeMonthsAgo.toISOString().split('T')[0],
-            to_date: now.toISOString().split('T')[0]
+            from_date: firstDay.toISOString().split('T')[0],
+            to_date: lastDay.toISOString().split('T')[0]
         };
     });
     
     const { data: summaryData } = useGetDashboardSummaryQuery();
-    
-    // Use the new metrics endpoint with date range filtering
-    const { data: metricsData, isLoading: isLoadingMetrics } = useGetDashboardMetricsQuery({
-        from_date: dateRange.from_date,
-        to_date: dateRange.to_date
-    });
-    
     const { data: hpasWithoutBillsData, isLoading: isLoadingHPAs } = useGetHPAsWithoutBillsQuery();
 
     // Search + pagination state for dashboard lists
@@ -64,11 +58,6 @@ export default function Dashboard() {
     const currentStats = summaryData?.current || {};
     const changes = summaryData?.changes || {};
     
-    // Get metrics from the optimized metrics endpoint (with date range)
-    // The response structure is { date_range, metrics, totals }
-    const metrics = metricsData?.metrics || {};
-    const totals = metricsData?.totals || {};
-    
     // Format currency
     const formatCurrency = (amount) => {
         if (!amount) return '₹0';
@@ -91,39 +80,35 @@ export default function Dashboard() {
     const stats = [
         {
             name: 'Active Trucks',
-            value: isLoadingMetrics ? '...' : (metrics.active_trucks || 0),
+            value: currentStats.active_trucks || 0,
             icon: TruckIcon,
             color: '#3b82f6',
             bgColor: '#eff6ff',
-            onClick: () => navigate('/masters/trucks'),
-            description: 'Trucks currently in movement/transit'
+            onClick: () => navigate('/masters/trucks')
         },
         {
             name: 'Open LRs',
-            value: isLoadingMetrics ? '...' : (metrics.pending_lrs || 0),
+            value: pendingLRs?.count || 0,
             icon: DocumentTextIcon,
             color: '#8b5cf6',
             bgColor: '#f5f3ff',
-            onClick: () => navigate('/lr', { state: { filter: { status: 'PENDING_HPA' } } }),
-            description: 'LRs pending HPA creation'
+            onClick: () => navigate('/lr', { state: { filter: { status: 'PENDING_HPA' } } })
         },
         {
             name: 'Open HPAs',
-            value: isLoadingMetrics ? '...' : (metrics.pending_hpas || 0),
+            value: pendingHPAs?.count || 0,
             icon: ClockIcon,
             color: '#f59e0b',
             bgColor: '#fffbeb',
-            onClick: () => navigate('/hpa', { state: { filter: { status: 'PENDING_BILL' } } }),
-            description: 'HPAs pending bill generation'
+            onClick: () => navigate('/hpa', { state: { filter: { status: 'PENDING_BILL' } } })
         },
         {
-            name: "Revenue",
-            value: isLoadingMetrics ? '...' : formatCurrency(metrics.total_revenue || 0),
+            name: "Today's Revenue",
+            value: formatCurrency(currentStats.total_revenue || 0),
             icon: CurrencyDollarIcon,
             color: '#22c55e',
             bgColor: '#f0fdf4',
-            onClick: () => navigate('/billing'),
-            description: 'Total billed amount in period'
+            onClick: () => navigate('/billing')
         },
     ];
 
@@ -179,14 +164,9 @@ export default function Dashboard() {
                         >
                             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                                 <div style={{ flex: 1 }}>
-                                    <p style={{ fontSize: '14px', color: '#6b7280', marginBottom: '4px', fontWeight: 500 }}>
+                                    <p style={{ fontSize: '14px', color: '#6b7280', marginBottom: '8px', fontWeight: 500 }}>
                                         {stat.name}
                                     </p>
-                                    {stat.description && (
-                                        <p style={{ fontSize: '11px', color: '#9ca3af', marginBottom: '8px' }}>
-                                            {stat.description}
-                                        </p>
-                                    )}
                                     <p style={{ fontSize: '32px', fontWeight: 700, color: '#111827', marginBottom: '12px' }}>
                                         {stat.value}
                                     </p>
@@ -398,14 +378,14 @@ export default function Dashboard() {
                             Open HPAs (Without Bills)
                         </h2>
                         <p style={{ fontSize: '14px', color: '#6b7280' }}>
-                            {isLoadingPendingHPAs ? 'Loading...' : (
-                                pendingHPAs?.count ? 
-                                    `${pendingHPAs.count} open HPA${pendingHPAs.count !== 1 ? 's' : ''} awaiting billing` :
+                            {isLoadingHPAs ? 'Loading...' : (
+                                hpasWithoutBillsData?.count ? 
+                                    `${hpasWithoutBillsData.count} open HPA${hpasWithoutBillsData.count !== 1 ? 's' : ''} awaiting billing` :
                                     'All HPAs are billed'
                             )}
                         </p>
                     </div>
-                    {pendingHPAs?.count > 0 && (
+                    {hpasWithoutBillsData?.count > 0 && (
                         <button 
                             className="btn btn-primary" 
                             style={{ justifyContent: 'center' }}
@@ -415,7 +395,7 @@ export default function Dashboard() {
                         </button>
                     )}
                 </div>
-                {isLoadingPendingHPAs ? (
+                {isLoadingHPAs ? (
                     <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af' }}>
                         Loading HPAs...
                     </div>
@@ -485,7 +465,7 @@ export default function Dashboard() {
                                         <tr
                                             key={hpa.id}
                                             style={{
-                                                borderBottom: index < Math.min(pendingHPAs.results.length, 10) - 1 ? '1px solid #f3f4f6' : 'none',
+                                                borderBottom: index < Math.min(hpasWithoutBillsData.hpas.length, 10) - 1 ? '1px solid #f3f4f6' : 'none',
                                                 transition: 'background 0.2s',
                                                 cursor: 'pointer'
                                             }}

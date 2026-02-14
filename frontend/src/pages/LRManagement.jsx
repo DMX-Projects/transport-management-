@@ -1,14 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { 
-    useGetLRsQuery, 
-    useCreateLRMutation, 
-    useUpdateLRMutation,
-    useGetLRItemsByLRQuery,
-    useCreateLRItemMutation,
-    useUpdateLRItemMutation,
-    useDeleteLRItemMutation
-} from '../features/lr/lrApi';
+import { useGetLRsQuery, useCreateLRMutation, useUpdateLRMutation } from '../features/lr/lrApi';
 import { useAuth } from '../hooks/useAuth';
 import {
     useGetBranchesQuery,
@@ -20,14 +11,12 @@ import {
     useCreateConsignorMutation,
     useCreatePartyMutation
 } from '../features/masters/mastersApi';
-import { DocumentTextIcon, XMarkIcon, PlusIcon, MagnifyingGlassIcon, ArrowDownTrayIcon, PencilIcon, EyeIcon, ShareIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { DocumentTextIcon, XMarkIcon, PlusIcon, MagnifyingGlassIcon, ArrowDownTrayIcon, PencilIcon } from '@heroicons/react/24/outline';
 import SearchableSelect from '../components/SearchableSelect';
 import { useSearchableSelect } from '../hooks/useSearchableSelect';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
-import CreateMultipleLRsModal from './CreateMultipleLRsModal';
 
 export default function LRManagement() {
-    const navigate = useNavigate();
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [selectedLR, setSelectedLR] = useState(null);
@@ -149,11 +138,10 @@ export default function LRManagement() {
 
                 <button
                     className="btn btn-primary"
-                    onClick={() => navigate('/lr/create')}
-                    style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                    onClick={() => setShowCreateModal(true)}
                 >
                     <PlusIcon style={{ width: '20px', height: '20px' }} />
-                    Create LR
+                    Create New LR
                 </button>
             </div>
 
@@ -307,34 +295,7 @@ export default function LRManagement() {
                                                 <button
                                                     onClick={() => {
                                                         const token = localStorage.getItem('token');
-                                                        const apiBase = import.meta.env.VITE_API_BASE_URL || (window.location.origin + '/api/v1');
-                                                        const url = `${apiBase}/lr/lorry-receipts/${lr.id}/download_pdf/`;
-                                                        fetch(url, {
-                                                            headers: {
-                                                                'Authorization': `Bearer ${token}`
-                                                            }
-                                                        })
-                                                        .then(response => response.blob())
-                                                        .then(blob => {
-                                                            const blobUrl = window.URL.createObjectURL(blob);
-                                                            window.open(blobUrl, '_blank');
-                                                            setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100);
-                                                        })
-                                                        .catch(error => {
-                                                            console.error('Error viewing PDF:', error);
-                                                            alert('Error viewing PDF. Please try again.');
-                                                        });
-                                                    }}
-                                                    style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#3b82f6' }}
-                                                    title="View LR PDF"
-                                                >
-                                                    <EyeIcon style={{ width: '18px', height: '18px' }} />
-                                                </button>
-                                                <button
-                                                    onClick={() => {
-                                                        const token = localStorage.getItem('token');
-                                                        const apiBase = import.meta.env.VITE_API_BASE_URL || (window.location.origin + '/api/v1');
-                                                        const url = `${apiBase}/lr/lorry-receipts/${lr.id}/download_pdf/`;
+                                                        const url = `http://localhost:8000/api/v1/lr/lorry-receipts/${lr.id}/download_pdf/`;
                                                         fetch(url, {
                                                             headers: {
                                                                 'Authorization': `Bearer ${token}`
@@ -361,37 +322,12 @@ export default function LRManagement() {
                                                 >
                                                     <ArrowDownTrayIcon style={{ width: '18px', height: '18px' }} />
                                                 </button>
-                                                <button
-                                                    onClick={() => {
-                                                        const token = localStorage.getItem('token');
-                                                        const apiBase = import.meta.env.VITE_API_BASE_URL || (window.location.origin + '/api/v1');
-                                                        const url = `${apiBase}/lr/lorry-receipts/${lr.id}/download_pdf/`;
-                                                        fetch(url, {
-                                                            headers: {
-                                                                'Authorization': `Bearer ${token}`
-                                                            }
-                                                        })
-                                                        .then(response => response.blob())
-                                                        .then(blob => {
-                                                            const blobUrl = window.URL.createObjectURL(blob);
-                                                            const message = `LR ${lr.lr_number} - Click to view: ${blobUrl}`;
-                                                            const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-                                                            window.open(whatsappUrl, '_blank');
-                                                            setTimeout(() => window.URL.revokeObjectURL(blobUrl), 5000);
-                                                        })
-                                                        .catch(error => {
-                                                            console.error('Error sharing PDF:', error);
-                                                            alert('Error sharing PDF. Please try again.');
-                                                        });
-                                                    }}
-                                                    style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#25D366' }}
-                                                    title="Share on WhatsApp"
-                                                >
-                                                    <ShareIcon style={{ width: '18px', height: '18px' }} />
-                                                </button>
                                                 {canEdit && (
                                                     <button
-                                                        onClick={() => navigate(`/lr/edit/${lr.id}`)}
+                                                        onClick={() => {
+                                                            setSelectedLR(lr);
+                                                            setShowEditModal(true);
+                                                        }}
                                                         style={{ padding: '6px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#6366f1' }}
                                                         title="Edit LR"
                                                     >
@@ -410,12 +346,14 @@ export default function LRManagement() {
 
             {/* Create LR Modal */}
             {showCreateModal && (
-                <CreateMultipleLRsModal
+                <CreateLRModal
                     branches={branches || []}
                     trucks={trucks || []}
                     consignors={consignors || []}
                     parties={parties || []}
                     onClose={() => setShowCreateModal(false)}
+                    onSubmit={handleCreateLR}
+                    isLoading={isCreating}
                 />
             )}
 
@@ -435,7 +373,6 @@ export default function LRManagement() {
                     isLoading={isUpdating}
                 />
             )}
-
         </div>
     );
 }
@@ -452,25 +389,14 @@ function CreateLRModal({ branches, trucks, consignors, parties, onClose, onSubmi
     // Get branch ID for branch managers - convert to string to match API expectations
     const defaultBranchId = isSuperAdmin ? '' : String(user?.branch?.id || user?.branch || '');
 
-    // LR Container Data (truck, driver, dates, status)
-    const [lrContainerData, setLrContainerData] = useState({
-        branch: defaultBranchId,
-        truck: '',
-        lr_date: new Date().toISOString().split('T')[0],
-        driver_name: '',
-        driver_phone: '',
-        driver_license_no: '',
-        status: 'DRAFT',
-        expected_loading_date: '',
-        expected_delivery_date: '',
-        remarks: '',
-    });
-
-    // LR Items (Orders) - Multiple items per LR
-    const [lrItems, setLrItems] = useState([
-        {
+    const [formData, setFormData] = useState({
+        branch: defaultBranchId, // SuperAdmin must select branch, Branch Manager auto-assigned
         consignor: '',
         consignee: '',
+        truck: '',
+        lr_date: new Date().toISOString().split('T')[0], // Today's date
+        sap_number: '',
+        lr_submitted_time: '',
         from_location: '',
         to_location: '',
         destination: '',
@@ -484,154 +410,84 @@ function CreateLRModal({ branches, trucks, consignors, parties, onClose, onSubmi
         please_load: '',
         number_of_loads: '',
         grade_type_of_pkg: '',
-            sap_number: '',
+        driver_name: '',
+        driver_phone: '',
+        driver_license_no: '',
         payment_term: 'TO_BE_BILLED',
         gst_payable_by: 'SERVICE',
-        }
-    ]);
+        status: 'DRAFT',
+        expected_loading_date: '',
+        actual_loading_date: '',
+        expected_delivery_date: '',
+        actual_delivery_date: '',
+        remarks: '',
+        note: '',
+    });
 
+    // No financial calculations in LR - amounts are only in HPA
     const [selectedTruck, setSelectedTruck] = useState(null);
-    const [showBranchModal, setShowBranchModal] = useState(false);
-    const [showTruckModal, setShowTruckModal] = useState(false);
-    const [showConsignorModal, setShowConsignorModal] = useState(false);
-    const [showPartyModal, setShowPartyModal] = useState(false);
 
     // Auto-populate driver details from truck when truck is selected
     const handleTruckChange = (e) => {
         const truckId = e.target.value;
         const truck = trucks.find(t => t.id === parseInt(truckId));
         setSelectedTruck(truck);
-        setLrContainerData({
-            ...lrContainerData,
+        setFormData({
+            ...formData,
             truck: truckId,
-            driver_name: truck?.driver_name || lrContainerData.driver_name,
-            driver_phone: truck?.driver_phone || lrContainerData.driver_phone,
-            driver_license_no: truck?.driver_license_no || lrContainerData.driver_license_no,
+            driver_name: truck?.driver_name || formData.driver_name,
+            driver_phone: truck?.driver_phone || formData.driver_phone,
+            driver_license_no: truck?.driver_license_no || formData.driver_license_no,
         });
     };
 
-    // Handle container field changes
-    const handleContainerChange = (e) => {
+    // No financial calculations - LR doesn't contain amounts (only in HPA)
+
+    const [showBranchModal, setShowBranchModal] = useState(false);
+    const [showTruckModal, setShowTruckModal] = useState(false);
+    const [showConsignorModal, setShowConsignorModal] = useState(false);
+    const [showPartyModal, setShowPartyModal] = useState(false);
+
+    const handleChange = (e) => {
         const { name, value } = e.target;
-        setLrContainerData({ ...lrContainerData, [name]: value });
+        let updatedData = { ...formData, [name]: value };
+        
+        // No financial calculations - LR doesn't contain amounts (only in HPA)
+        
+        setFormData(updatedData);
     };
-
-    // Handle item field changes
-    const handleItemChange = (index, field, value) => {
-        const updatedItems = [...lrItems];
-        updatedItems[index][field] = value;
-        setLrItems(updatedItems);
-    };
-
-    // Add new item
-    const handleAddItem = () => {
-        setLrItems([...lrItems, {
-            consignor: '',
-            consignee: '',
-            from_location: '',
-            to_location: '',
-            destination: '',
-            delivery_at: '',
-            material_description: '',
-            quantity_mt: '',
-            number_of_bags: '',
-            grade: '',
-            grade_quantity: '',
-            loading_from_department: 'DISTRIBUTION DEPARTMENT',
-            please_load: '',
-            number_of_loads: '',
-            grade_type_of_pkg: '',
-            sap_number: '',
-            payment_term: 'TO_BE_BILLED',
-            gst_payable_by: 'SERVICE',
-        }]);
-    };
-
-    // Remove item
-    const handleRemoveItem = (index) => {
-        if (lrItems.length > 1) {
-            setLrItems(lrItems.filter((_, i) => i !== index));
-        } else {
-            alert('LR must have at least one item');
-        }
-    };
-
-    // Calculate totals
-    const totalQuantity = lrItems.reduce((sum, item) => 
-        sum + parseFloat(item.quantity_mt || 0), 0
-    );
-    const totalBags = lrItems.reduce((sum, item) => 
-        sum + parseInt(item.number_of_bags || 0), 0
-    );
 
     const handleSubmit = (e) => {
         e.preventDefault();
 
-        // Validate at least one item
-        if (lrItems.length === 0) {
-            alert('Please add at least one LR item');
-            return;
-        }
-
-        // Validate required fields for each item
-        const invalidItems = lrItems.filter(item => 
-            !item.consignor || !item.consignee || !item.from_location || 
-            !item.to_location || !item.quantity_mt
-        );
-
-        if (invalidItems.length > 0) {
-            alert('Please fill all required fields for all items (Consignor, Consignee, From, To, Quantity)');
-            return;
-        }
-
-        // Prepare container data
-        const cleanedContainerData = { ...lrContainerData };
+        // Clean up the form data - remove empty optional fields
+        const cleanedData = { ...formData };
 
         // Branch managers: Remove branch field (backend auto-assigns from user.branch)
+        // SuperAdmin: Keep branch field (must be provided)
         if (!isSuperAdmin) {
-            delete cleanedContainerData.branch;
+            delete cleanedData.branch;
         }
 
-        // Remove empty optional fields from container
-        const optionalContainerFields = ['expected_loading_date', 'expected_delivery_date', 'remarks'];
-        optionalContainerFields.forEach(field => {
-            if (!cleanedContainerData[field] || cleanedContainerData[field] === '') {
-                delete cleanedContainerData[field];
+        // Remove empty optional fields
+        const optionalFields = ['sap_number', 'lr_submitted_time', 'destination', 'delivery_at', 
+            'grade', 'grade_quantity', 'loading_from_department', 'please_load', 
+            'number_of_loads', 'grade_type_of_pkg', 'expected_loading_date', 
+            'actual_loading_date', 'expected_delivery_date', 'actual_delivery_date',
+            'remarks', 'note', 'gst_payable_by'];
+        
+        optionalFields.forEach(field => {
+            if (!cleanedData[field] || cleanedData[field] === '') {
+                delete cleanedData[field];
             }
         });
 
-        // Prepare items data
-        const cleanedItems = lrItems.map((item, index) => {
-            const cleanedItem = { ...item };
-            
-            // Convert number fields
-            if (cleanedItem.quantity_mt) cleanedItem.quantity_mt = parseFloat(cleanedItem.quantity_mt);
-            if (cleanedItem.number_of_bags) cleanedItem.number_of_bags = parseInt(cleanedItem.number_of_bags);
-            if (cleanedItem.number_of_loads) cleanedItem.number_of_loads = parseInt(cleanedItem.number_of_loads);
+        // Convert number fields to proper format
+        if (cleanedData.quantity_mt) cleanedData.quantity_mt = parseFloat(cleanedData.quantity_mt);
+        if (cleanedData.number_of_bags) cleanedData.number_of_bags = parseInt(cleanedData.number_of_bags);
+        // No financial fields in LR - amounts are only in HPA
 
-        // Remove empty optional fields
-            const optionalItemFields = [
-                'destination', 'delivery_at', 'grade', 'grade_quantity',
-                'loading_from_department', 'please_load', 'number_of_loads',
-                'grade_type_of_pkg', 'sap_number', 'gst_payable_by'
-            ];
-            
-            optionalItemFields.forEach(field => {
-                if (!cleanedItem[field] || cleanedItem[field] === '') {
-                    delete cleanedItem[field];
-                }
-            });
-
-            return cleanedItem;
-        });
-
-        // Combine container and items
-        const formData = {
-            ...cleanedContainerData,
-            lr_items: cleanedItems
-        };
-
-        onSubmit(formData);
+        onSubmit(cleanedData);
     };
 
     return (
@@ -650,7 +506,7 @@ function CreateLRModal({ branches, trucks, consignors, parties, onClose, onSubmi
                     style={{
                         background: 'white',
                         borderRadius: '16px',
-                        maxWidth: '1400px',
+                        maxWidth: '900px',
                         width: '100%',
                         maxHeight: '90vh',
                         overflow: 'auto',
@@ -666,21 +522,6 @@ function CreateLRModal({ branches, trucks, consignors, parties, onClose, onSubmi
                     </div>
 
                     <form onSubmit={handleSubmit}>
-                        {/* SECTION 1: LR Container Details */}
-                        <div style={{ 
-                            marginBottom: '32px',
-                            paddingBottom: '24px',
-                            borderBottom: '2px solid #e5e7eb'
-                        }}>
-                            <h3 style={{ 
-                                fontSize: '18px', 
-                                fontWeight: 600, 
-                                marginBottom: '20px',
-                                color: '#374151'
-                            }}>
-                                LR Container Details
-                            </h3>
-                            
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px' }}>
                             {/* Branch Selection - SuperAdmin only */}
                             {isSuperAdmin && (
@@ -691,8 +532,8 @@ function CreateLRModal({ branches, trucks, consignors, parties, onClose, onSubmi
                                     <SearchableSelect
                                         options={branches}
                                         onSearch={branchSearch.searchFunction}
-                                            value={lrContainerData.branch}
-                                            onChange={handleContainerChange}
+                                        value={formData.branch}
+                                        onChange={handleChange}
                                         placeholder="Search branch by name/code"
                                         label={null}
                                         name="branch"
@@ -703,6 +544,12 @@ function CreateLRModal({ branches, trucks, consignors, parties, onClose, onSubmi
                                 </div>
                             )}
                             
+                            {!isSuperAdmin && (
+                                <div style={{ gridColumn: 'span 2', background: '#d1fae5', padding: '12px', borderRadius: '8px', marginBottom: '12px' }}>
+                                    <p style={{ fontSize: '13px', color: '#065f46', margin: 0 }}>✓ Branch auto-assigned to your branch</p>
+                                </div>
+                            )}
+
                             {/* Truck */}
                             <div>
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
@@ -710,7 +557,7 @@ function CreateLRModal({ branches, trucks, consignors, parties, onClose, onSubmi
                                         <SearchableSelect
                                             options={trucks}
                                             onSearch={truckSearch.searchFunction}
-                                                value={lrContainerData.truck}
+                                            value={formData.truck}
                                             onChange={handleTruckChange}
                                             placeholder="Search and select truck..."
                                             label="Truck"
@@ -734,179 +581,19 @@ function CreateLRModal({ branches, trucks, consignors, parties, onClose, onSubmi
                                 </div>
                             </div>
 
-                                {/* LR Date */}
+                            {/* Consignor (Company sending goods) */}
                             <div>
-                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                        LR Date *
-                                    </label>
-                                    <input type="date" name="lr_date" className="input" required onChange={handleContainerChange} value={lrContainerData.lr_date} />
-                                </div>
-
-                                {/* Driver Name */}
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                        Driver Name *
-                                    </label>
-                                    <input type="text" name="driver_name" className="input" required onChange={handleContainerChange} value={lrContainerData.driver_name} placeholder="Nitin" />
-                                </div>
-
-                                {/* Driver Phone */}
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                        Driver Mobile *
-                                    </label>
-                                    <input type="tel" name="driver_phone" className="input" required onChange={handleContainerChange} value={lrContainerData.driver_phone} placeholder="9075051501" />
-                                </div>
-
-                                {/* Driver License */}
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                        Driver License No. *
-                                    </label>
-                                    <input type="text" name="driver_license_no" className="input" required onChange={handleContainerChange} value={lrContainerData.driver_license_no} placeholder="MH13233" />
-                                </div>
-
-                                {/* Status */}
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                        Status *
-                                    </label>
-                                    <select name="status" className="input" required onChange={handleContainerChange} value={lrContainerData.status}>
-                                        <option value="DRAFT">Draft</option>
-                                        <option value="ISSUED">Issued to Driver</option>
-                                        <option value="LOADING">At Loading Point</option>
-                                        <option value="IN_TRANSIT">In Transit</option>
-                                        <option value="AT_UNLOADING">At Unloading Point</option>
-                                        <option value="DELIVERED">Delivered</option>
-                                        <option value="CANCELLED">Cancelled</option>
-                                    </select>
-                                </div>
-
-                                {/* Expected Loading Date */}
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                        Expected Loading Date
-                                    </label>
-                                    <input type="date" name="expected_loading_date" className="input" onChange={handleContainerChange} value={lrContainerData.expected_loading_date} />
-                                </div>
-
-                                {/* Expected Delivery Date */}
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                        Expected Delivery Date
-                                    </label>
-                                    <input type="date" name="expected_delivery_date" className="input" onChange={handleContainerChange} value={lrContainerData.expected_delivery_date} />
-                                </div>
-
-                                {/* Remarks */}
-                                <div style={{ gridColumn: 'span 2' }}>
-                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                        Remarks
-                                    </label>
-                                    <textarea name="remarks" className="input" onChange={handleContainerChange} value={lrContainerData.remarks} rows="2" placeholder="Any additional notes..." />
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* SECTION 2: LR Items (Orders) */}
-                        <div style={{ marginBottom: '32px' }}>
-                            <div style={{ 
-                                display: 'flex', 
-                                justifyContent: 'space-between', 
-                                alignItems: 'center',
-                                marginBottom: '16px'
-                            }}>
-                                <h3 style={{ 
-                                    fontSize: '18px', 
-                                    fontWeight: 600,
-                                    color: '#374151'
-                                }}>
-                                    LR Items (Orders)
-                                </h3>
-                                <button
-                                    type="button"
-                                    onClick={handleAddItem}
-                                    className="btn btn-primary"
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '8px',
-                                        padding: '10px 16px'
-                                    }}
-                                >
-                                    <PlusIcon style={{ width: '18px', height: '18px' }} />
-                                    Add Order
-                                </button>
-                            </div>
-
-                            {/* Items Table */}
-                            <div style={{
-                                border: '1px solid #e5e7eb',
-                                borderRadius: '12px',
-                                overflow: 'hidden',
-                                background: 'white'
-                            }}>
-                                {/* Table Header */}
-                                <div style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: '50px 1.2fr 1.2fr 120px 120px 100px 100px 1.5fr 50px',
-                                    gap: '12px',
-                                    padding: '12px 16px',
-                                    background: '#f9fafb',
-                                    borderBottom: '2px solid #e5e7eb',
-                                    fontWeight: 600,
-                                    fontSize: '13px',
-                                    color: '#374151'
-                                }}>
-                                    <div>#</div>
-                                    <div>Consignor *</div>
-                                    <div>Consignee *</div>
-                                    <div>From *</div>
-                                    <div>To *</div>
-                                    <div>Qty (MT) *</div>
-                                    <div>Bags</div>
-                                    <div>Material</div>
-                                    <div></div>
-                                </div>
-
-                                {/* Table Body - Scrollable */}
-                                <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                                    {lrItems.map((item, index) => (
-                                        <div
-                                            key={index}
-                                            style={{
-                                                display: 'grid',
-                                                gridTemplateColumns: '50px 1.2fr 1.2fr 120px 120px 100px 100px 1.5fr 50px',
-                                                gap: '12px',
-                                                padding: '12px 16px',
-                                                borderBottom: index < lrItems.length - 1 ? '1px solid #f3f4f6' : 'none',
-                                                alignItems: 'center',
-                                                background: index % 2 === 0 ? 'white' : '#fafafa'
-                                            }}
-                                        >
-                                            {/* Row Number */}
-                                            <div style={{
-                                                fontWeight: 600,
-                                                color: '#6b7280',
-                                                fontSize: '14px',
-                                                textAlign: 'center'
-                                            }}>
-                                                {index + 1}
-                                            </div>
-
-                                            {/* Consignor */}
-                                            <div>
-                                                <div style={{ display: 'flex', gap: '4px', alignItems: 'flex-end' }}>
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
                                     <div style={{ flex: 1 }}>
                                         <SearchableSelect
                                             options={consignors}
                                             onSearch={consignorSearch.searchFunction}
-                                                            value={item.consignor}
-                                                            onChange={(e) => handleItemChange(index, 'consignor', e.target.value)}
-                                                            placeholder="Select..."
-                                                            label={null}
-                                                            name={`consignor_${index}`}
+                                            value={formData.consignor}
+                                            onChange={handleChange}
+                                            placeholder="Search and select consignor..."
+                                            label="Consignor (Company sending goods)"
                                             required
+                                            name="consignor"
                                             getOptionLabel={(opt) => opt.name}
                                             getOptionValue={(opt) => opt.id}
                                         />
@@ -916,28 +603,28 @@ function CreateLRModal({ branches, trucks, consignors, parties, onClose, onSubmi
                                             type="button"
                                             onClick={() => setShowConsignorModal(true)}
                                             className="btn btn-secondary"
-                                                            style={{ padding: '6px 8px', minWidth: 'auto', height: '36px' }}
+                                            style={{ padding: '10px 16px', minWidth: 'auto', height: '44px' }}
                                             title="Add New Consignor"
                                         >
-                                                            <PlusIcon style={{ width: '14px', height: '14px' }} />
+                                            <PlusIcon style={{ width: '18px', height: '18px' }} />
                                         </button>
                                     )}
                                 </div>
                             </div>
 
-                                            {/* Consignee */}
+                            {/* Consignee (Destination party) */}
                             <div>
-                                                <div style={{ display: 'flex', gap: '4px', alignItems: 'flex-end' }}>
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
                                     <div style={{ flex: 1 }}>
                                         <SearchableSelect
                                             options={parties}
                                             onSearch={partySearch.searchFunction}
-                                                            value={item.consignee}
-                                                            onChange={(e) => handleItemChange(index, 'consignee', e.target.value)}
-                                                            placeholder="Select..."
-                                                            label={null}
-                                                            name={`consignee_${index}`}
+                                            value={formData.consignee}
+                                            onChange={handleChange}
+                                            placeholder="Search and select consignee/party..."
+                                            label="Consignee (Destination party)"
                                             required
+                                            name="consignee"
                                             getOptionLabel={(opt) => opt.name}
                                             getOptionValue={(opt) => opt.id}
                                         />
@@ -947,129 +634,184 @@ function CreateLRModal({ branches, trucks, consignors, parties, onClose, onSubmi
                                             type="button"
                                             onClick={() => setShowPartyModal(true)}
                                             className="btn btn-secondary"
-                                                            style={{ padding: '6px 8px', minWidth: 'auto', height: '36px' }}
+                                            style={{ padding: '10px 16px', minWidth: 'auto', height: '44px' }}
                                             title="Add New Party"
                                         >
-                                                            <PlusIcon style={{ width: '14px', height: '14px' }} />
+                                            <PlusIcon style={{ width: '18px', height: '18px' }} />
                                         </button>
                                     )}
                                 </div>
                             </div>
 
+                            {/* LR Date */}
+                            <div>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    LR Date *
+                                </label>
+                                <input type="date" name="lr_date" className="input" required onChange={handleChange} value={formData.lr_date} />
+                            </div>
+
+                            {/* SAP Number */}
+                            <div>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    SAP Number
+                                </label>
+                                <input type="text" name="sap_number" className="input" onChange={handleChange} value={formData.sap_number} placeholder="Optional" />
+                            </div>
+
                             {/* From Location */}
                             <div>
-                                                <input
-                                                    type="text"
-                                                    value={item.from_location}
-                                                    onChange={(e) => handleItemChange(index, 'from_location', e.target.value)}
-                                                    placeholder="Mumbai"
-                                                    required
-                                                    className="input"
-                                                    style={{ fontSize: '13px', padding: '8px 10px' }}
-                                                />
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    From Location *
+                                </label>
+                                <input type="text" name="from_location" className="input" required onChange={handleChange} value={formData.from_location} placeholder="Mumbai" />
                             </div>
 
                             {/* To Location */}
                             <div>
-                                                <input
-                                                    type="text"
-                                                    value={item.to_location}
-                                                    onChange={(e) => handleItemChange(index, 'to_location', e.target.value)}
-                                                    placeholder="Bangalore"
-                                                    required
-                                                    className="input"
-                                                    style={{ fontSize: '13px', padding: '8px 10px' }}
-                                                />
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    To Location *
+                                </label>
+                                <input type="text" name="to_location" className="input" required onChange={handleChange} value={formData.to_location} placeholder="Bangalore" />
+                            </div>
+
+                            {/* Material Description */}
+                            <div style={{ gridColumn: 'span 2' }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    Material Description *
+                                </label>
+                                <textarea name="material_description" className="input" required onChange={handleChange} value={formData.material_description} rows="3" placeholder="Electronics, Textiles, etc." />
                             </div>
 
                             {/* Quantity (MT) */}
                             <div>
-                                                <input
-                                                    type="number"
-                                                    step="0.01"
-                                                    value={item.quantity_mt}
-                                                    onChange={(e) => handleItemChange(index, 'quantity_mt', e.target.value)}
-                                                    placeholder="0.00"
-                                                    required
-                                                    className="input"
-                                                    style={{ fontSize: '13px', padding: '8px 10px' }}
-                                                />
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    Quantity (M.T.) *
+                                </label>
+                                <input type="number" step="0.01" name="quantity_mt" className="input" required onChange={handleChange} value={formData.quantity_mt} placeholder="35" />
                             </div>
 
                             {/* Number of Bags */}
                             <div>
-                                                <input
-                                                    type="number"
-                                                    value={item.number_of_bags}
-                                                    onChange={(e) => handleItemChange(index, 'number_of_bags', e.target.value)}
-                                                    placeholder="0"
-                                                    className="input"
-                                                    style={{ fontSize: '13px', padding: '8px 10px' }}
-                                                />
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    Number of Bags *
+                                </label>
+                                <input type="number" name="number_of_bags" className="input" required onChange={handleChange} value={formData.number_of_bags} placeholder="700" />
                             </div>
 
-                                            {/* Material Description */}
+                            {/* Grade */}
                             <div>
-                                                <input
-                                                    type="text"
-                                                    value={item.material_description}
-                                                    onChange={(e) => handleItemChange(index, 'material_description', e.target.value)}
-                                                    placeholder="Cement, Electronics..."
-                                                    className="input"
-                                                    style={{ fontSize: '13px', padding: '8px 10px' }}
-                                                />
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    Grade
+                                </label>
+                                <select name="grade" className="input" onChange={handleChange} value={formData.grade}>
+                                    <option value="">Select Grade</option>
+                                    <option value="53">Grade 53</option>
+                                    <option value="43">Grade 43</option>
+                                    <option value="OPC">OPC (Ordinary Portland Cement)</option>
+                                    <option value="PPC">PPC (Portland Pozzolana Cement)</option>
+                                    <option value="OTHER">Other</option>
+                                </select>
                             </div>
 
-                                            {/* Delete Button */}
-                                            <div style={{ display: 'flex', justifyContent: 'center' }}>
-                                                {lrItems.length > 1 ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleRemoveItem(index)}
-                                                        style={{
-                                                            background: 'none',
-                                                            border: 'none',
-                                                            cursor: 'pointer',
-                                                            padding: '4px',
-                                                            color: '#ef4444',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center'
-                                                        }}
-                                                        title="Remove this order"
-                                                    >
-                                                        <XMarkIcon style={{ width: '18px', height: '18px' }} />
-                                                    </button>
-                                                ) : (
-                                                    <div style={{ width: '18px', height: '18px' }} />
-                                                )}
-                            </div>
-                            </div>
-                                    ))}
+                            {/* Grade Quantity */}
+                            <div>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    Grade Quantity
+                                </label>
+                                <input type="text" name="grade_quantity" className="input" onChange={handleChange} value={formData.grade_quantity} placeholder="35MT OPC" />
                             </div>
 
-                                {/* Totals Row */}
-                                <div style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: '50px 1.2fr 1.2fr 120px 120px 100px 100px 1.5fr 50px',
-                                    gap: '12px',
-                                    padding: '12px 16px',
-                                    background: '#fef3c7',
-                                    borderTop: '2px solid #fbbf24',
-                                    fontWeight: 600,
-                                    fontSize: '14px',
-                                    color: '#92400e'
-                                }}>
-                                    <div style={{ textAlign: 'center' }}>TOTAL</div>
-                                    <div>-</div>
-                                    <div>-</div>
-                                    <div>-</div>
-                                    <div>-</div>
-                                    <div style={{ textAlign: 'right' }}>{totalQuantity.toFixed(2)}</div>
-                                    <div style={{ textAlign: 'right' }}>{totalBags}</div>
-                                    <div>-</div>
-                                    <div></div>
+                            {/* Driver Name */}
+                            <div>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    Driver Name *
+                                </label>
+                                <input type="text" name="driver_name" className="input" required onChange={handleChange} value={formData.driver_name} placeholder="Nitin" />
                             </div>
+
+                            {/* Driver Phone */}
+                            <div>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    Driver Mobile *
+                                </label>
+                                <input type="tel" name="driver_phone" className="input" required onChange={handleChange} value={formData.driver_phone} placeholder="9075051501" />
+                            </div>
+
+                            {/* Driver License */}
+                            <div>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    Driver License No. *
+                                </label>
+                                <input type="text" name="driver_license_no" className="input" required onChange={handleChange} value={formData.driver_license_no} placeholder="MH13233" />
+                            </div>
+
+                            {/* Payment Term */}
+                            <div>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    Payment Term *
+                                </label>
+                                <select name="payment_term" className="input" required onChange={handleChange} value={formData.payment_term}>
+                                    <option value="TO_BE_BILLED">To Be Billed</option>
+                                    <option value="TO_PAY">To Pay</option>
+                                    <option value="PAID">Paid</option>
+                                </select>
+                            </div>
+
+                            {/* Destination */}
+                            <div>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    Destination
+                                </label>
+                                <input type="text" name="destination" className="input" onChange={handleChange} value={formData.destination} placeholder="Final destination if different" />
+                            </div>
+
+                            {/* Delivery At */}
+                            <div>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    Delivery At
+                                </label>
+                                <input type="text" name="delivery_at" className="input" onChange={handleChange} value={formData.delivery_at} placeholder="Specific delivery location" />
+                            </div>
+
+                            {/* Status */}
+                            <div>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    Status *
+                                </label>
+                                <select name="status" className="input" required onChange={handleChange} value={formData.status}>
+                                    <option value="DRAFT">Draft</option>
+                                    <option value="ISSUED">Issued to Driver</option>
+                                    <option value="LOADING">At Loading Point</option>
+                                    <option value="IN_TRANSIT">In Transit</option>
+                                    <option value="AT_UNLOADING">At Unloading Point</option>
+                                    <option value="DELIVERED">Delivered</option>
+                                    <option value="CANCELLED">Cancelled</option>
+                                </select>
+                            </div>
+
+                            {/* Expected Loading Date */}
+                            <div>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    Expected Loading Date
+                                </label>
+                                <input type="date" name="expected_loading_date" className="input" onChange={handleChange} value={formData.expected_loading_date} />
+                            </div>
+
+                            {/* Expected Delivery Date */}
+                            <div>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    Expected Delivery Date
+                                </label>
+                                <input type="date" name="expected_delivery_date" className="input" onChange={handleChange} value={formData.expected_delivery_date} />
+                            </div>
+
+                            {/* Remarks */}
+                            <div style={{ gridColumn: 'span 2' }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                                    Remarks
+                                </label>
+                                <textarea name="remarks" className="input" onChange={handleChange} value={formData.remarks} rows="2" placeholder="Any additional notes..." />
                             </div>
                         </div>
 
@@ -1101,221 +843,44 @@ function CreateLRModal({ branches, trucks, consignors, parties, onClose, onSubmi
 }
 
 function EditLRModal({ lr, branches, trucks, consignors, parties, onClose, onSubmit, isLoading }) {
-    const { isSuperAdmin } = useAuth();
     const truckSearch = useSearchableSelect('/masters/trucks/');
     const consignorSearch = useSearchableSelect('/masters/consignors/');
     const partySearch = useSearchableSelect('/masters/parties/');
 
-    // Load existing items
-    const { data: lrItemsData, refetch: refetchItems } = useGetLRItemsByLRQuery(lr.id);
-    const existingItems = lrItemsData || [];
-    
-    // Check if can edit items
-    const canEditItems = lr.status === 'DRAFT' || lr.status === 'PENDING_HPA';
-
-    // LR Container Data
-    const [lrContainerData, setLrContainerData] = useState({
+    const [formData, setFormData] = useState({
+        branch: lr.branch || '',
+        from_location: lr.from_location || '',
+        to_location: lr.to_location || '',
         truck: lr.truck || '',
         driver_name: lr.driver_name || '',
         driver_phone: lr.driver_phone || '',
         driver_license_no: lr.driver_license_no || '',
+        consignor: lr.consignor || '',
+        consignee: lr.consignee || '',
+        quantity_mt: lr.quantity_mt || '',
+        number_of_bags: lr.number_of_bags || '',
+        lr_number: lr.lr_number || '',
         lr_date: lr.lr_date || new Date().toISOString().split('T')[0],
-        status: lr.status || 'DRAFT',
-        expected_loading_date: lr.expected_loading_date || '',
-        expected_delivery_date: lr.expected_delivery_date || '',
+        sap_number: lr.sap_number || '',
+        material_description: lr.material_description || '',
         remarks: lr.remarks || '',
     });
 
-    // LR Items - Initialize from existing items or empty
-    const [lrItems, setLrItems] = useState(() => {
-        if (existingItems.length > 0) {
-            return existingItems.map(item => ({
-                id: item.id,
-                consignor: item.consignor || '',
-                consignee: item.consignee || '',
-                from_location: item.from_location || '',
-                to_location: item.to_location || '',
-                destination: item.destination || '',
-                delivery_at: item.delivery_at || '',
-                material_description: item.material_description || '',
-                quantity_mt: item.quantity_mt || '',
-                number_of_bags: item.number_of_bags || '',
-                grade: item.grade || '',
-                grade_quantity: item.grade_quantity || '',
-                loading_from_department: item.loading_from_department || 'DISTRIBUTION DEPARTMENT',
-                please_load: item.please_load || '',
-                number_of_loads: item.number_of_loads || '',
-                grade_type_of_pkg: item.grade_type_of_pkg || '',
-                sap_number: item.sap_number || '',
-                payment_term: item.payment_term || 'TO_BE_BILLED',
-                gst_payable_by: item.gst_payable_by || 'SERVICE',
-                sequence_number: item.sequence_number || 1,
-            }));
-        }
-        return [];
-    });
-
-    // Update items when data loads
-    useEffect(() => {
-        if (existingItems.length > 0 && lrItems.length === 0) {
-            setLrItems(existingItems.map(item => ({
-                id: item.id,
-                consignor: item.consignor || '',
-                consignee: item.consignee || '',
-                from_location: item.from_location || '',
-                to_location: item.to_location || '',
-                destination: item.destination || '',
-                delivery_at: item.delivery_at || '',
-                material_description: item.material_description || '',
-                quantity_mt: item.quantity_mt || '',
-                number_of_bags: item.number_of_bags || '',
-                grade: item.grade || '',
-                grade_quantity: item.grade_quantity || '',
-                loading_from_department: item.loading_from_department || 'DISTRIBUTION DEPARTMENT',
-                please_load: item.please_load || '',
-                number_of_loads: item.number_of_loads || '',
-                grade_type_of_pkg: item.grade_type_of_pkg || '',
-                sap_number: item.sap_number || '',
-                payment_term: item.payment_term || 'TO_BE_BILLED',
-                gst_payable_by: item.gst_payable_by || 'SERVICE',
-                sequence_number: item.sequence_number || 1,
-            })));
-        }
-    }, [existingItems]);
-
-    const [createLRItem] = useCreateLRItemMutation();
-    const [updateLRItem] = useUpdateLRItemMutation();
-    const [deleteLRItem] = useDeleteLRItemMutation();
-    const [updateLR] = useUpdateLRMutation();
-
-    // Handle container field changes
-    const handleContainerChange = (e) => {
+    const handleChange = (e) => {
         const { name, value } = e.target;
-        setLrContainerData({ ...lrContainerData, [name]: value });
+        setFormData({ ...formData, [name]: value });
     };
 
-    // Handle item field changes
-    const handleItemChange = (index, field, value) => {
-        const updatedItems = [...lrItems];
-        updatedItems[index][field] = value;
-        setLrItems(updatedItems);
+    const handleSelectChange = (name, value) => {
+        setFormData({ ...formData, [name]: value });
     };
-
-    // Add new item
-    const handleAddItem = async () => {
-        if (!canEditItems) {
-            alert('Cannot add items. LR status must be DRAFT or PENDING_HPA.');
-            return;
-        }
-
-        const newItem = {
-            consignor: '',
-            consignee: '',
-            from_location: '',
-            to_location: '',
-            destination: '',
-            delivery_at: '',
-            material_description: '',
-            quantity_mt: '',
-            number_of_bags: '',
-            grade: '',
-            grade_quantity: '',
-            loading_from_department: 'DISTRIBUTION DEPARTMENT',
-            please_load: '',
-            number_of_loads: '',
-            grade_type_of_pkg: '',
-            sap_number: '',
-            payment_term: 'TO_BE_BILLED',
-            gst_payable_by: 'SERVICE',
-        };
-
-        try {
-            const result = await createLRItem({
-                lr: lr.id,
-                ...newItem
-            }).unwrap();
-            
-            setLrItems([...lrItems, { ...newItem, id: result.id, sequence_number: result.sequence_number }]);
-            refetchItems();
-        } catch (error) {
-            alert('Error adding item: ' + (error.data?.error || error.message || 'Unknown error'));
-        }
-    };
-
-    // Remove item
-    const handleRemoveItem = async (index) => {
-        if (!canEditItems) {
-            alert('Cannot remove items. LR status must be DRAFT or PENDING_HPA.');
-            return;
-        }
-
-        if (lrItems.length <= 1) {
-            alert('LR must have at least one item');
-            return;
-        }
-
-        const item = lrItems[index];
-        if (item.id) {
-            // Existing item - delete from backend
-            try {
-                await deleteLRItem(item.id).unwrap();
-                setLrItems(lrItems.filter((_, i) => i !== index));
-                refetchItems();
-            } catch (error) {
-                alert('Error removing item: ' + (error.data?.error || error.message || 'Unknown error'));
-            }
-        } else {
-            // New item - just remove from state
-            setLrItems(lrItems.filter((_, i) => i !== index));
-        }
-    };
-
-    // Calculate totals
-    const totalQuantity = lrItems.reduce((sum, item) => 
-        sum + parseFloat(item.quantity_mt || 0), 0
-    );
-    const totalBags = lrItems.reduce((sum, item) => 
-        sum + parseInt(item.number_of_bags || 0), 0
-    );
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-
         try {
-            // Update container fields
-            await updateLR({ id: lr.id, ...lrContainerData }).unwrap();
-            
-            // Update all items
-            for (const item of lrItems) {
-                if (item.id) {
-                    // Existing item - update
-                    const { id, ...itemData } = item;
-                    await updateLRItem({ id, ...itemData }).unwrap();
-                } else if (canEditItems) {
-                    // New item - create
-                    await createLRItem({
-                        lr: lr.id,
-                        ...item
-                    }).unwrap();
-                }
-            }
-
-            await onSubmit(lrContainerData);
-            refetchItems();
+            await onSubmit(formData);
         } catch (error) {
             console.error('Error updating LR:', error);
-            let errorMessage = 'Error updating LR:\n\n';
-            if (error.data && typeof error.data === 'object' && !Array.isArray(error.data)) {
-                Object.entries(error.data).forEach(([field, messages]) => {
-                    const msgArray = Array.isArray(messages) ? messages : [messages];
-                    errorMessage += `• ${field}: ${msgArray.join(', ')}\n`;
-                });
-            } else if (typeof error.data === 'string') {
-                errorMessage += error.data;
-            } else {
-                errorMessage += error.message || 'Unknown error occurred';
-            }
-            alert(errorMessage);
         }
     };
 
@@ -1334,7 +899,7 @@ function EditLRModal({ lr, branches, trucks, consignors, parties, onClose, onSub
                 style={{
                     background: 'white',
                     borderRadius: '16px',
-                    maxWidth: '1400px',
+                    maxWidth: '900px',
                     width: '100%',
                     maxHeight: '90vh',
                     overflow: 'auto',
@@ -1349,41 +914,11 @@ function EditLRModal({ lr, branches, trucks, consignors, parties, onClose, onSub
                     </button>
                 </div>
 
-                {/* Status Warning */}
-                {!canEditItems && (
-                    <div style={{
-                        background: '#fef3c7',
-                        border: '1px solid #fbbf24',
-                        borderRadius: '8px',
-                        padding: '12px 16px',
-                        marginBottom: '20px',
-                        color: '#92400e',
-                        fontSize: '14px'
-                    }}>
-                        ⚠️ Items cannot be edited. LR status is {lr.status}. Only container fields can be updated.
-                    </div>
-                )}
-
                 <form onSubmit={handleSubmit}>
-                    {/* SECTION 1: LR Container Details */}
-                    <div style={{ 
-                        marginBottom: '32px',
-                        paddingBottom: '24px',
-                        borderBottom: '2px solid #e5e7eb'
-                    }}>
-                        <h3 style={{ 
-                            fontSize: '18px', 
-                            fontWeight: 600, 
-                            marginBottom: '20px',
-                            color: '#374151'
-                        }}>
-                            LR Container Details
-                        </h3>
-                        
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
                         {/* Branch - Read only */}
                         <div>
-                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
                                 Branch
                             </label>
                             <div style={{
@@ -1399,7 +934,7 @@ function EditLRModal({ lr, branches, trucks, consignors, parties, onClose, onSub
 
                         {/* LR Number - Read only */}
                         <div>
-                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
                                 LR Number
                             </label>
                             <div style={{
@@ -1413,385 +948,266 @@ function EditLRModal({ lr, branches, trucks, consignors, parties, onClose, onSub
                             </div>
                         </div>
 
+                        {/* From Location */}
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                From Location <span style={{ color: '#ef4444' }}>*</span>
+                            </label>
+                            <input
+                                type="text"
+                                name="from_location"
+                                value={formData.from_location}
+                                onChange={handleChange}
+                                required
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontFamily: 'inherit'
+                                }}
+                            />
+                        </div>
+
+                        {/* To Location */}
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                To Location <span style={{ color: '#ef4444' }}>*</span>
+                            </label>
+                            <input
+                                type="text"
+                                name="to_location"
+                                value={formData.to_location}
+                                onChange={handleChange}
+                                required
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontFamily: 'inherit'
+                                }}
+                            />
+                        </div>
+
                         {/* Truck */}
                         <div>
                             <SearchableSelect
                                 options={trucks}
                                 onSearch={truckSearch.searchFunction}
-                                    value={lrContainerData.truck}
-                                    onChange={handleContainerChange}
-                                    placeholder="Search and select truck..."
+                                value={formData.truck}
+                                onChange={handleChange}
+                                placeholder="Search truck..."
                                 label="Truck"
                                 name="truck"
                                 required
-                                    getOptionLabel={(opt) => opt.truck_number}
+                                getOptionLabel={(opt) => `${opt.truck_number}${opt.capacity ? ` - ${opt.capacity} Ton` : ''}`}
                                 getOptionValue={(opt) => opt.id}
                             />
                         </div>
 
-                            {/* LR Date */}
-                            <div>
-                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                    LR Date *
-                                </label>
-                                <input type="date" name="lr_date" className="input" required onChange={handleContainerChange} value={lrContainerData.lr_date} />
-                            </div>
+
 
                         {/* Driver Name */}
                         <div>
-                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                    Driver Name *
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                Driver Name
                             </label>
-                                <input type="text" name="driver_name" className="input" required onChange={handleContainerChange} value={lrContainerData.driver_name} placeholder="Nitin" />
-                        </div>
-
-                            {/* Driver Phone */}
-                        <div>
-                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                    Driver Mobile *
-                            </label>
-                                <input type="tel" name="driver_phone" className="input" required onChange={handleContainerChange} value={lrContainerData.driver_phone} placeholder="9075051501" />
-                            </div>
-
-                            {/* Driver License */}
-                            <div>
-                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                    Driver License No. *
-                                </label>
-                                <input type="text" name="driver_license_no" className="input" required onChange={handleContainerChange} value={lrContainerData.driver_license_no} placeholder="MH13233" />
-                            </div>
-
-                            {/* Status */}
-                            <div>
-                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                    Status *
-                                </label>
-                                <select name="status" className="input" required onChange={handleContainerChange} value={lrContainerData.status}>
-                                    <option value="DRAFT">Draft</option>
-                                    <option value="PENDING_HPA">Pending HPA Creation</option>
-                                    <option value="ISSUED">Issued to Driver</option>
-                                    <option value="LOADING">At Loading Point</option>
-                                    <option value="IN_TRANSIT">In Transit</option>
-                                    <option value="AT_UNLOADING">At Unloading Point</option>
-                                    <option value="DELIVERED">Delivered</option>
-                                    <option value="CANCELLED">Cancelled</option>
-                                </select>
-                            </div>
-
-                            {/* Expected Loading Date */}
-                            <div>
-                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                    Expected Loading Date
-                                </label>
-                                <input type="date" name="expected_loading_date" className="input" onChange={handleContainerChange} value={lrContainerData.expected_loading_date} />
-                            </div>
-
-                            {/* Expected Delivery Date */}
-                            <div>
-                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                    Expected Delivery Date
-                                </label>
-                                <input type="date" name="expected_delivery_date" className="input" onChange={handleContainerChange} value={lrContainerData.expected_delivery_date} />
-                            </div>
-
-                            {/* Remarks */}
-                            <div style={{ gridColumn: 'span 2' }}>
-                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#374151' }}>
-                                    Remarks
-                                </label>
-                                <textarea name="remarks" className="input" onChange={handleContainerChange} value={lrContainerData.remarks} rows="2" placeholder="Any additional notes..." />
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* SECTION 2: LR Items (Orders) */}
-                    <div style={{ marginBottom: '32px' }}>
-                        <div style={{ 
-                            display: 'flex', 
-                            justifyContent: 'space-between', 
-                            alignItems: 'center',
-                            marginBottom: '16px'
-                        }}>
-                            <h3 style={{ 
-                                fontSize: '18px', 
-                                fontWeight: 600,
-                                color: '#374151'
-                            }}>
-                                LR Items (Orders)
-                            </h3>
-                            <button
-                                type="button"
-                                onClick={handleAddItem}
-                                className="btn btn-primary"
-                                disabled={!canEditItems}
+                            <input
+                                type="text"
+                                name="driver_name"
+                                value={formData.driver_name}
+                                onChange={handleChange}
                                 style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    padding: '10px 16px',
-                                    opacity: canEditItems ? 1 : 0.5,
-                                    cursor: canEditItems ? 'pointer' : 'not-allowed'
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontFamily: 'inherit'
                                 }}
-                                title={canEditItems ? 'Add new order' : 'Cannot add items. LR status must be DRAFT or PENDING_HPA.'}
-                            >
-                                <PlusIcon style={{ width: '18px', height: '18px' }} />
-                                Add Order
-                            </button>
+                            />
                         </div>
 
-                        {/* Items Table */}
-                        <div style={{
-                            border: '1px solid #e5e7eb',
-                            borderRadius: '12px',
-                            overflow: 'hidden',
-                            background: 'white'
-                        }}>
-                            {/* Table Header */}
-                            <div style={{
-                                display: 'grid',
-                                gridTemplateColumns: '50px 1.2fr 1.2fr 120px 120px 100px 100px 1.5fr 50px',
-                                gap: '12px',
-                                padding: '12px 16px',
-                                background: '#f9fafb',
-                                borderBottom: '2px solid #e5e7eb',
-                                fontWeight: 600,
-                                fontSize: '13px',
-                                color: '#374151'
-                            }}>
-                                <div>#</div>
-                                <div>Consignor *</div>
-                                <div>Consignee *</div>
-                                <div>From *</div>
-                                <div>To *</div>
-                                <div>Qty (MT) *</div>
-                                <div>Bags</div>
-                                <div>Material</div>
-                                <div></div>
-                            </div>
-
-                            {/* Table Body - Scrollable */}
-                            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                                {lrItems.length === 0 ? (
-                                    <div style={{ padding: '40px', textAlign: 'center', color: '#6b7280' }}>
-                                        No items found. {canEditItems && 'Click "Add Order" to add items.'}
-                                    </div>
-                                ) : (
-                                    lrItems.map((item, index) => (
-                                        <div
-                                            key={item.id || index}
-                                            style={{
-                                                display: 'grid',
-                                                gridTemplateColumns: '50px 1.2fr 1.2fr 120px 120px 100px 100px 1.5fr 50px',
-                                                gap: '12px',
-                                                padding: '12px 16px',
-                                                borderBottom: index < lrItems.length - 1 ? '1px solid #f3f4f6' : 'none',
-                                                alignItems: 'center',
-                                                background: index % 2 === 0 ? 'white' : '#fafafa',
-                                                opacity: canEditItems ? 1 : 0.7
-                                            }}
-                                        >
-                                            {/* Row Number */}
-                                            <div style={{
-                                                fontWeight: 600,
-                                                color: '#6b7280',
-                                                fontSize: '14px',
-                                                textAlign: 'center'
-                                            }}>
-                                                {item.sequence_number || index + 1}
+                        {/* Driver Mobile */}
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                Driver Mobile
+                            </label>
+                            <input
+                                type="text"
+                                name="driver_phone"
+                                value={formData.driver_phone}
+                                onChange={handleChange}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontFamily: 'inherit'
+                                }}
+                            />
                         </div>
 
                         {/* Consignor */}
                         <div>
-                                                <div style={{ display: 'flex', gap: '4px', alignItems: 'flex-end' }}>
-                                                    <div style={{ flex: 1 }}>
                             <SearchableSelect
                                 options={consignors}
                                 onSearch={consignorSearch.searchFunction}
-                                                            value={item.consignor}
-                                                            onChange={(e) => handleItemChange(index, 'consignor', e.target.value)}
-                                                            placeholder="Select..."
-                                                            label={null}
-                                                            name={`consignor_${index}`}
-                                                            required
-                                                            disabled={!canEditItems}
+                                value={formData.consignor}
+                                onChange={handleChange}
+                                placeholder="Search consignor..."
+                                label="Consignor"
+                                name="consignor"
                                 getOptionLabel={(opt) => opt.name}
                                 getOptionValue={(opt) => opt.id}
                             />
-                                                    </div>
-                                                    {isSuperAdmin && canEditItems && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {/* setShowConsignorModal(true) */}}
-                                                            className="btn btn-secondary"
-                                                            style={{ padding: '6px 8px', minWidth: 'auto', height: '36px' }}
-                                                            title="Add New Consignor"
-                                                        >
-                                                            <PlusIcon style={{ width: '14px', height: '14px' }} />
-                                                        </button>
-                                                    )}
-                                                </div>
                         </div>
 
                         {/* Consignee */}
                         <div>
-                                                <div style={{ display: 'flex', gap: '4px', alignItems: 'flex-end' }}>
-                                                    <div style={{ flex: 1 }}>
                             <SearchableSelect
                                 options={parties}
                                 onSearch={partySearch.searchFunction}
-                                                            value={item.consignee}
-                                                            onChange={(e) => handleItemChange(index, 'consignee', e.target.value)}
-                                                            placeholder="Select..."
-                                                            label={null}
-                                                            name={`consignee_${index}`}
-                                                            required
-                                                            disabled={!canEditItems}
+                                value={formData.consignee}
+                                onChange={handleChange}
+                                placeholder="Search party..."
+                                label="Consignee (Party)"
+                                name="consignee"
                                 getOptionLabel={(opt) => opt.name}
                                 getOptionValue={(opt) => opt.id}
                             />
-                                                    </div>
-                                                    {isSuperAdmin && canEditItems && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {/* setShowPartyModal(true) */}}
-                                                            className="btn btn-secondary"
-                                                            style={{ padding: '6px 8px', minWidth: 'auto', height: '36px' }}
-                                                            title="Add New Party"
-                                                        >
-                                                            <PlusIcon style={{ width: '14px', height: '14px' }} />
-                                                        </button>
-                                                    )}
-                                                </div>
                         </div>
 
-                                            {/* From Location */}
+                        {/* Quantity MT */}
                         <div>
-                            <input
-                                                    type="text"
-                                                    value={item.from_location}
-                                                    onChange={(e) => handleItemChange(index, 'from_location', e.target.value)}
-                                                    placeholder="Mumbai"
-                                required
-                                                    disabled={!canEditItems}
-                                                    className="input"
-                                                    style={{ fontSize: '13px', padding: '8px 10px' }}
-                            />
-                        </div>
-
-                                            {/* To Location */}
-                        <div>
-                                                <input
-                                                    type="text"
-                                                    value={item.to_location}
-                                                    onChange={(e) => handleItemChange(index, 'to_location', e.target.value)}
-                                                    placeholder="Bangalore"
-                                                    required
-                                                    disabled={!canEditItems}
-                                                    className="input"
-                                                    style={{ fontSize: '13px', padding: '8px 10px' }}
-                                                />
-                                            </div>
-
-                                            {/* Quantity (MT) */}
-                                            <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                Quantity (MT) <span style={{ color: '#ef4444' }}>*</span>
+                            </label>
                             <input
                                 type="number"
-                                                    step="0.01"
-                                                    value={item.quantity_mt}
-                                                    onChange={(e) => handleItemChange(index, 'quantity_mt', e.target.value)}
-                                                    placeholder="0.00"
-                                                    required
-                                                    disabled={!canEditItems}
-                                                    className="input"
-                                                    style={{ fontSize: '13px', padding: '8px 10px' }}
+                                name="quantity_mt"
+                                value={formData.quantity_mt}
+                                onChange={handleChange}
+                                required
+                                step="0.01"
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontFamily: 'inherit'
+                                }}
                             />
                         </div>
 
-                                            {/* Number of Bags */}
+                        {/* Number of Bags */}
                         <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                Number of Bags
+                            </label>
                             <input
-                                                    type="number"
-                                                    value={item.number_of_bags}
-                                                    onChange={(e) => handleItemChange(index, 'number_of_bags', e.target.value)}
-                                                    placeholder="0"
-                                                    disabled={!canEditItems}
-                                                    className="input"
-                                                    style={{ fontSize: '13px', padding: '8px 10px' }}
+                                type="number"
+                                name="number_of_bags"
+                                value={formData.number_of_bags}
+                                onChange={handleChange}
+                                min="0"
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontFamily: 'inherit'
+                                }}
                             />
                         </div>
 
-                                            {/* Material Description */}
+                        {/* LR Date */}
                         <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                LR Date
+                            </label>
+                            <input
+                                type="date"
+                                name="lr_date"
+                                value={formData.lr_date}
+                                onChange={handleChange}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontFamily: 'inherit'
+                                }}
+                            />
+                        </div>
+
+                        {/* SAP Number */}
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                                SAP Number
+                            </label>
                             <input
                                 type="text"
-                                                    value={item.material_description}
-                                                    onChange={(e) => handleItemChange(index, 'material_description', e.target.value)}
-                                                    placeholder="Cement, Electronics..."
-                                                    disabled={!canEditItems}
-                                                    className="input"
-                                                    style={{ fontSize: '13px', padding: '8px 10px' }}
-                                                />
-                                            </div>
-
-                                            {/* Delete Button */}
-                                            <div style={{ display: 'flex', justifyContent: 'center' }}>
-                                                {canEditItems && lrItems.length > 1 ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleRemoveItem(index)}
+                                name="sap_number"
+                                value={formData.sap_number}
+                                onChange={handleChange}
                                 style={{
-                                                            background: 'none',
-                                                            border: 'none',
-                                                            cursor: 'pointer',
-                                                            padding: '4px',
-                                                            color: '#ef4444',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center'
-                                                        }}
-                                                        title="Remove this order"
-                                                    >
-                                                        <XMarkIcon style={{ width: '18px', height: '18px' }} />
-                                                    </button>
-                                                ) : (
-                                                    <div style={{ width: '18px', height: '18px' }} />
-                                                )}
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontFamily: 'inherit'
+                                }}
+                            />
                         </div>
-                                        </div>
-                                    ))
-                                )}
                     </div>
 
-                            {/* Totals Row */}
-                            {lrItems.length > 0 && (
-                                <div style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: '50px 1.2fr 1.2fr 120px 120px 100px 100px 1.5fr 50px',
-                                    gap: '12px',
-                                    padding: '12px 16px',
-                                    background: '#fef3c7',
-                                    borderTop: '2px solid #fbbf24',
-                                    fontWeight: 600,
+                    {/* Remarks */}
+                    <div style={{ marginBottom: '24px' }}>
+                        <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
+                            Remarks
+                        </label>
+                        <textarea
+                            name="remarks"
+                            value={formData.remarks}
+                            onChange={handleChange}
+                            rows="4"
+                            placeholder="Enter any remarks"
+                            style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '8px',
                                 fontSize: '14px',
-                                    color: '#92400e'
-                                }}>
-                                    <div style={{ textAlign: 'center' }}>TOTAL</div>
-                                    <div>-</div>
-                                    <div>-</div>
-                                    <div>-</div>
-                                    <div>-</div>
-                                    <div style={{ textAlign: 'right' }}>{totalQuantity.toFixed(2)}</div>
-                                    <div style={{ textAlign: 'right' }}>{totalBags}</div>
-                                    <div>-</div>
-                                    <div></div>
-                                </div>
-                            )}
-                        </div>
+                                fontFamily: 'inherit',
+                                resize: 'vertical'
+                            }}
+                        />
                     </div>
 
                     {/* Buttons */}
                     <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                        <button type="button" className="btn btn-secondary" onClick={onClose}>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            style={{
+                                padding: '10px 24px',
+                                background: '#f3f4f6',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                fontWeight: 600,
+                                cursor: 'pointer'
+                            }}
+                        >
                             Cancel
                         </button>
                         <button type="submit" className="btn btn-primary" disabled={isLoading}>
